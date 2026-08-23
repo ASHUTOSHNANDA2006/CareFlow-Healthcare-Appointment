@@ -2,7 +2,7 @@ import Appointment from '../models/Appointment.js';
 import Notification from '../models/Notification.js';
 import Doctor from '../models/Doctor.js';
 import Leave from '../models/Leave.js';
-import { getDoctorSlotsForDate } from '../services/appointment/slot.service.js';
+import { getDoctorSlotsForDate, getNowInTimezone } from '../services/appointment/slot.service.js';
 import { holdSlot, confirmBooking } from '../services/appointment/booking.service.js';
 import { syncGoogleCalendarEvent } from '../services/calendar/googleCalendar.service.js';
 
@@ -75,16 +75,39 @@ export const getAvailability = async (req, res, next) => {
       });
     }
 
+    const { dateStr: currentDateStr } = getNowInTimezone();
     const searchDate = new Date(date);
     searchDate.setUTCHours(0, 0, 0, 0);
+
     const leave = await Leave.findOne({ doctorId, date: searchDate });
+    if (leave) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'DOCTOR_ON_LEAVE',
+          slots: [],
+        },
+      });
+    }
+
+    if (date < currentDateStr) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'PAST_DATE',
+          slots: [],
+        },
+      });
+    }
 
     const slots = await getDoctorSlotsForDate(doctorId, date);
     res.status(200).json({
       success: true,
       data: {
-        available: !leave,
-        reason: leave ? 'DOCTOR_ON_LEAVE' : null,
+        available: true,
+        reason: null,
         slots,
       },
     });

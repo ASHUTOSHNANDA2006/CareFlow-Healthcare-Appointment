@@ -2,6 +2,7 @@ import SlotHold from '../../models/SlotHold.js';
 import Appointment from '../../models/Appointment.js';
 import Doctor from '../../models/Doctor.js';
 import Leave from '../../models/Leave.js';
+import { getNowInTimezone, parseTime } from './slot.service.js';
 
 export const holdSlot = async (patientId, doctorId, dateStr, startTime, endTime) => {
   // Validate doctor profile
@@ -10,6 +11,18 @@ export const holdSlot = async (patientId, doctorId, dateStr, startTime, endTime)
     const error = new Error('Doctor profile not found.');
     error.statusCode = 404;
     error.errorCode = 'DOCTOR_NOT_FOUND';
+    throw error;
+  }
+
+  // Validate past time slot (Time-aware availability rule)
+  const { dateStr: currentDateStr, timeStr: currentTimeStr } = getNowInTimezone();
+  const currentMins = parseTime(currentTimeStr);
+  const slotStartMins = parseTime(startTime);
+
+  if (dateStr < currentDateStr || (dateStr === currentDateStr && slotStartMins < currentMins)) {
+    const error = new Error('This appointment time has already passed.');
+    error.statusCode = 400;
+    error.errorCode = 'PAST_TIME_SLOT';
     throw error;
   }
 
@@ -99,6 +112,21 @@ export const confirmBooking = async (slotHoldId, patientId) => {
     const error = new Error('The slot hold reservation has expired.');
     error.statusCode = 400;
     error.errorCode = 'SLOT_HOLD_EXPIRED';
+    throw error;
+  }
+
+  // Validate past time slot before creating permanent appointment
+  const { dateStr: currentDateStr, timeStr: currentTimeStr } = getNowInTimezone();
+  const holdDateStr = hold.date.toISOString().split('T')[0];
+  const holdStartMins = parseTime(hold.startTime);
+  const currentMins = parseTime(currentTimeStr);
+
+  if (holdDateStr < currentDateStr || (holdDateStr === currentDateStr && holdStartMins < currentMins)) {
+    hold.status = 'EXPIRED';
+    await hold.save();
+    const error = new Error('This appointment time has already passed.');
+    error.statusCode = 400;
+    error.errorCode = 'PAST_TIME_SLOT';
     throw error;
   }
 

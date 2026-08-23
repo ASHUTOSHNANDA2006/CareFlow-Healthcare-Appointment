@@ -4,23 +4,34 @@ import Appointment from '../../models/Appointment.js';
 import SlotHold from '../../models/SlotHold.js';
 
 // Formats minutes as HH:MM
-const formatTime = (minutes) => {
+export const formatTime = (minutes) => {
   const h = Math.floor(minutes / 60).toString().padStart(2, '0');
   const m = (minutes % 60).toString().padStart(2, '0');
   return `${h}:${m}`;
 };
 
 // Parses HH:MM to minutes
-const parseTime = (timeStr) => {
+export const parseTime = (timeStr) => {
   const [h, m] = timeStr.split(':').map(Number);
   return h * 60 + m;
 };
 
-export const getDoctorSlotsForDate = async (doctorId, dateStr) => {
+// Gets current date string (YYYY-MM-DD) and time string (HH:MM) in configured timezone
+export const getNowInTimezone = (timeZone = process.env.APP_TIMEZONE || 'Asia/Kolkata') => {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-CA', { timeZone }); // YYYY-MM-DD
+  const timeStr = now.toLocaleTimeString('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false });
+  return { dateStr, timeStr, now };
+};
+
+export const getDoctorSlotsForDate = async (doctorId, dateStr, customNow = null) => {
   const doctor = await Doctor.findById(doctorId);
   if (!doctor) {
     throw new Error('Doctor profile not found.');
   }
+
+  const { dateStr: currentDateStr, timeStr: currentTimeStr } = customNow || getNowInTimezone();
+  const currentMinutes = parseTime(currentTimeStr);
 
   // 1. Check if doctor is on leave
   const searchDate = new Date(dateStr);
@@ -30,7 +41,12 @@ export const getDoctorSlotsForDate = async (doctorId, dateStr) => {
     return [];
   }
 
-  // 2. Generate all working slots
+  // 2. If selected date is in the past, return zero slots
+  if (dateStr < currentDateStr) {
+    return [];
+  }
+
+  // 3. Generate all working slots
   const slots = [];
   const startMinutes = parseTime(doctor.workingHours.start);
   const endMinutes = parseTime(doctor.workingHours.end);
@@ -38,14 +54,23 @@ export const getDoctorSlotsForDate = async (doctorId, dateStr) => {
 
   let current = startMinutes;
   while (current + duration <= endMinutes) {
-    slots.push({
-      startTime: formatTime(current),
-      endTime: formatTime(current + duration),
-    });
+    const startTime = formatTime(current);
+    const endTime = formatTime(current + duration);
+
+    // If selected date is TODAY, exclude slots whose start time has already passed
+    if (dateStr === currentDateStr) {
+      if (current >= currentMinutes) {
+        slots.push({ startTime, endTime });
+      }
+    } else {
+      // Future date: include all working slots
+      slots.push({ startTime, endTime });
+    }
+
     current += duration;
   }
 
-  // 3. Release any expired holds inline to update availability calculations dynamically
+  // 4. Release any expired holds inline to update availability calculations dynamically
   const now = new Date();
   await SlotHold.updateMany(
     {

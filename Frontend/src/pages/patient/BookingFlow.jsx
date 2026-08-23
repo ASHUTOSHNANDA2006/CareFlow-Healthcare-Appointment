@@ -13,29 +13,50 @@ const BookingFlow = () => {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [isOnLeave, setIsOnLeave] = useState(false);
   
+  const [isPastDate, setIsPastDate] = useState(false);
   const [holdId, setHoldId] = useState(null);
-  const [timer, setTimer] = useState(300); // 5 minutes hold countdown timer
+  const [timer, setTimer] = useState(300);
   const [timerInterval, setTimerInterval] = useState(null);
-
   const [symptoms, setSymptoms] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const navigate = useNavigate();
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+  // Live availability refresh strategy while user sits on Step 2
+  React.useEffect(() => {
+    if (step === 2 && date) {
+      const interval = setInterval(async () => {
+        try {
+          const res = await appointmentService.getAvailability(doctorId, date);
+          if (res.success && res.data.slots) {
+            setSlots(res.data.slots);
+          }
+        } catch { /* silent */ }
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [step, date, doctorId]);
 
   const handleDateSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setIsOnLeave(false);
+    setIsPastDate(false);
     setLoading(true);
 
     try {
       const res = await appointmentService.getAvailability(doctorId, date);
       if (res.success) {
-        if (res.data.available === false || res.data.reason === 'DOCTOR_ON_LEAVE') {
+        if (res.data.available === false && res.data.reason === 'DOCTOR_ON_LEAVE') {
           setIsOnLeave(true);
           setSlots([]);
           setError('Doctor unavailable — On leave for this date.');
+        } else if (res.data.available === false && res.data.reason === 'PAST_DATE') {
+          setIsPastDate(true);
+          setSlots([]);
+          setError('No appointments available for past dates.');
         } else {
           setSlots(res.data.slots || []);
         }
@@ -145,7 +166,7 @@ const BookingFlow = () => {
             <input
               type="date"
               value={date}
-              min={new Date().toISOString().split('T')[0]}
+              min={todayStr}
               onChange={(e) => setDate(e.target.value)}
               required
             />
@@ -163,6 +184,12 @@ const BookingFlow = () => {
                 <strong>Doctor unavailable — On leave for this date.</strong>
                 <p style={{ marginTop: '8px', fontSize: '0.85rem' }}>Please choose another date for your consultation.</p>
                 <button onClick={() => setStep(1)} className="btn-primary" style={{ marginTop: '14px' }}>Choose Another Date</button>
+              </div>
+            ) : isPastDate ? (
+              <div style={{ textAlign: 'center', padding: '20px', background: '#FDF3F2', color: '#C97872', borderRadius: '8px' }}>
+                <strong>No appointments available for past dates.</strong>
+                <p style={{ marginTop: '8px', fontSize: '0.85rem' }}>Please choose a current or future date.</p>
+                <button onClick={() => setStep(1)} className="btn-primary" style={{ marginTop: '14px' }}>Choose Valid Date</button>
               </div>
             ) : slots.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#697776', padding: '20px' }}>
