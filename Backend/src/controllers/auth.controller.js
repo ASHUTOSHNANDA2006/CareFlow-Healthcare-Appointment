@@ -113,6 +113,16 @@ export const login = async (req, res, next) => {
       });
     }
 
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'ACCOUNT_DEACTIVATED',
+          message: 'Your account has been deactivated by administrator.',
+        },
+      });
+    }
+
     const { token } = generateToken(user);
 
     res.cookie('token', token, {

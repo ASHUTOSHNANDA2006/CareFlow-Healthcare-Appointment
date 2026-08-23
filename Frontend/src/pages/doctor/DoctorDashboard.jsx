@@ -309,10 +309,22 @@ const DoctorDashboard = () => {
                     <strong>Patient Reported Symptoms:</strong>
                     <p style={{ marginTop: '4px' }}>{appDetail.symptomReportId.symptoms}</p>
                     {appDetail.symptomReportId.aiSummary && (
-                      <p style={styles.aiHint}>
-                        AI Urgency: <strong>{appDetail.symptomReportId.aiSummary.urgency}</strong>
-                        {' — '}{appDetail.symptomReportId.aiSummary.chiefComplaint}
-                      </p>
+                      <div style={{ marginTop: '10px', background: '#FFFFFF', padding: '12px', borderRadius: '6px', borderLeft: `4px solid ${appDetail.symptomReportId.aiSummary.urgency === 'High' ? '#C97872' : '#2F6F6D'}` }}>
+                        <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: '700', background: appDetail.symptomReportId.aiSummary.urgency === 'High' ? '#FDF3F2' : '#EAF2F0', color: appDetail.symptomReportId.aiSummary.urgency === 'High' ? '#C97872' : '#2F6F6D' }}>
+                          AI Urgency: {appDetail.symptomReportId.aiSummary.urgency}
+                        </span>
+                        <p style={{ margin: '6px 0 4px', fontSize: '0.875rem' }}><strong>Chief Complaint:</strong> {appDetail.symptomReportId.aiSummary.chiefComplaint}</p>
+                        {appDetail.symptomReportId.aiSummary.suggestedQuestions?.length > 0 && (
+                          <div style={{ marginTop: '6px', fontSize: '0.82rem', color: '#263536' }}>
+                            <strong>Suggested Questions for Doctor:</strong>
+                            <ol style={{ paddingLeft: '18px', margin: '4px 0' }}>
+                              {appDetail.symptomReportId.aiSummary.suggestedQuestions.map((q, i) => (
+                                <li key={i}>{q}</li>
+                              ))}
+                            </ol>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

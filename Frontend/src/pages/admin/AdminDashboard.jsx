@@ -130,7 +130,7 @@ const AdminDashboard = () => {
               <h3>All Users ({data.users.length})</h3>
               <table style={styles.table}>
                 <thead>
-                  <tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th></tr>
+                  <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th>Action</th></tr>
                 </thead>
                 <tbody>
                   {data.users.map(u => (
@@ -138,7 +138,29 @@ const AdminDashboard = () => {
                       <td>{u.name}</td>
                       <td>{u.email}</td>
                       <td><span style={{ ...styles.roleBadge, background: u.role === 'admin' ? '#FDF3F2' : u.role === 'doctor' ? '#F0F4FF' : '#EAF2F0', color: u.role === 'admin' ? '#C97872' : u.role === 'doctor' ? '#4466BB' : '#2F6F6D' }}>{u.role}</span></td>
+                      <td>
+                        <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '600', background: u.isActive !== false ? '#EAF2F0' : '#FDF3F2', color: u.isActive !== false ? '#2F6F6D' : '#C97872' }}>
+                          {u.isActive !== false ? 'Active' : 'Deactivated'}
+                        </span>
+                      </td>
                       <td>{fmt(u.createdAt)}</td>
+                      <td>
+                        {u.role !== 'admin' && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await adminService.toggleUserStatus(u._id);
+                                await loadAll();
+                              } catch (err) {
+                                alert(err.response?.data?.error?.message || 'Failed to change user status.');
+                              }
+                            }}
+                            style={{ background: 'transparent', border: `1px solid ${u.isActive !== false ? '#C97872' : '#2F6F6D'}`, color: u.isActive !== false ? '#C97872' : '#2F6F6D', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}
+                          >
+                            {u.isActive !== false ? 'Deactivate' : 'Activate'}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

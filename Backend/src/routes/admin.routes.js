@@ -1,5 +1,14 @@
 import express from 'express';
-import { createDoctor, updateDoctor, addDoctorLeave, getAdminUsers, getAdminAppointments, getAdminDoctors } from '../controllers/admin.controller.js';
+import {
+  createDoctor,
+  updateDoctor,
+  addDoctorLeave,
+  getAdminUsers,
+  getAdminAppointments,
+  getAdminDoctors,
+  toggleUserStatus,
+  deleteUser,
+} from '../controllers/admin.controller.js';
 import { requireAuth } from '../middlewares/auth.middleware.js';
 import { requireRole } from '../middlewares/role.middleware.js';
 
@@ -9,6 +18,8 @@ const router = express.Router();
 router.use(requireAuth, requireRole('admin'));
 
 router.get('/users', getAdminUsers);
+router.patch('/users/:id/status', toggleUserStatus);
+router.delete('/users/:id', deleteUser);
 router.get('/appointments', getAdminAppointments);
 router.get('/doctors', getAdminDoctors);
 router.post('/doctors', createDoctor);

@@ -48,6 +48,16 @@ export const requireAuth = async (req, res, next) => {
       });
     }
 
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'ACCOUNT_DEACTIVATED',
+          message: 'Your account has been deactivated.',
+        },
+      });
+    }
+
     // Attach user and token claims to request
     req.user = user;
     req.tokenClaims = decoded;

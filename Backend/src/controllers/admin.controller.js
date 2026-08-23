@@ -16,6 +16,43 @@ export const getAdminUsers = async (req, res, next) => {
   }
 };
 
+export const toggleUserStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (id === req.user._id.toString()) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_ACTION', message: 'You cannot deactivate your own admin account.' } });
+    }
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found.' } });
+    }
+    user.isActive = !user.isActive;
+    await user.save();
+    res.status(200).json({ success: true, data: { user: { id: user._id, name: user.name, email: user.email, role: user.role, isActive: user.isActive } } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (id === req.user._id.toString()) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_ACTION', message: 'You cannot delete your own admin account.' } });
+    }
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found.' } });
+    }
+    // Safe deactivation model to preserve medical record foreign keys
+    user.isActive = false;
+    await user.save();
+    res.status(200).json({ success: true, message: 'User account deactivated successfully.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAdminAppointments = async (req, res, next) => {
   try {
     const appointments = await Appointment.find()

@@ -29,3 +29,14 @@ export const addDoctorLeave = async (doctorId, data) => {
   const res = await api.post(`/admin/doctors/${doctorId}/leave`, data);
   return res.data;
 };
+
+export const toggleUserStatus = async (id) => {
+  const res = await api.patch(`/admin/users/${id}/status`);
+  return res.data;
+};
+
+export const deleteUser = async (id) => {
+  const res = await api.delete(`/admin/users/${id}`);
+  return res.data;
+};
+
