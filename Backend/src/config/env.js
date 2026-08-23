@@ -29,4 +29,5 @@ export const config = {
   emailFrom: process.env.EMAIL_FROM,
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   isProduction: process.env.NODE_ENV === 'production',
+  mongodbDnsServer: process.env.MONGODB_DNS_SERVER,
 };

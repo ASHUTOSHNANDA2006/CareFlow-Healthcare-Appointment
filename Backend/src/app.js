@@ -26,6 +26,8 @@ app.use('/api/doctors', doctorRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/ai', aiRoutes);
 
+import mongoose from 'mongoose';
+
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({
@@ -35,6 +37,33 @@ app.get('/api/health', (req, res) => {
       timestamp: new Date().toISOString(),
     },
   });
+});
+
+// Database Audit/Health check endpoint (development environment constraints check)
+app.get('/api/health/database', async (req, res, next) => {
+  try {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ success: false, message: 'Forbidden in production' });
+    }
+
+    const collections = Object.keys(mongoose.connection.collections);
+    const maskedHost = mongoose.connection.host ? mongoose.connection.host.replace(/.*@/, '') : 'localhost';
+
+    const counts = {};
+    for (const name of collections) {
+      counts[name] = await mongoose.connection.collections[name].countDocuments();
+    }
+
+    res.status(200).json({
+      connected: mongoose.connection.readyState === 1,
+      database: mongoose.connection.name,
+      host: maskedHost,
+      collections,
+      counts
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Centralized error handling
