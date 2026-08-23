@@ -1,5 +1,6 @@
 import Appointment from '../models/Appointment.js';
 import Notification from '../models/Notification.js';
+import Doctor from '../models/Doctor.js';
 import { getDoctorSlotsForDate } from '../services/appointment/slot.service.js';
 import { holdSlot, confirmBooking } from '../services/appointment/booking.service.js';
 import { syncGoogleCalendarEvent } from '../services/calendar/googleCalendar.service.js';
@@ -116,11 +117,20 @@ export const getAppointments = async (req, res, next) => {
     if (req.user.role === 'patient') {
       query.patientId = req.user._id;
     } else if (req.user.role === 'doctor') {
-      query.doctorId = req.user._id;
+      // Appointments store the Doctor profile _id (not the User _id)
+      const doctorProfile = await Doctor.findOne({ userId: req.user._id });
+      if (!doctorProfile) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'DOCTOR_NOT_FOUND', message: 'Doctor profile not found.' },
+        });
+      }
+      query.doctorId = doctorProfile._id;
     }
+    // Admins get all appointments (no filter)
 
     const appointments = await Appointment.find(query)
-      .populate('doctorId', 'specialization workingHours')
+      .populate({ path: 'doctorId', select: 'specialization workingHours', populate: { path: 'userId', select: 'name email' } })
       .populate('patientId', 'name email')
       .sort({ date: 1, startTime: 1 });
 
