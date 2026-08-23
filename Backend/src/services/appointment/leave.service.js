@@ -10,7 +10,7 @@ export const handleLeaveConflicts = async (doctorId, dateStr, reason) => {
   const affectedAppointments = await Appointment.find({
     doctorId,
     date: leaveDate,
-    status: { $in: ['HELD', 'CONFIRMED'] },
+    status: 'CONFIRMED',
   }).populate('patientId', 'name email');
 
   if (affectedAppointments.length === 0) {
@@ -36,12 +36,12 @@ export const handleLeaveConflicts = async (doctorId, dateStr, reason) => {
     {
       doctorId,
       date: leaveDate,
-      status: { $in: ['HELD', 'CONFIRMED'] },
+      status: 'CONFIRMED',
     },
     { $set: { status: 'CANCELLED' } }
   );
 
-  // Prepare conflict reports (will be integrated with notifications in Milestone 6)
+  // Prepare conflict reports
   const conflicts = affectedAppointments.map((app) => ({
     appointmentId: app._id,
     patientName: app.patientId.name,

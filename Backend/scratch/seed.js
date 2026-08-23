@@ -1,9 +1,6 @@
 import User from '../src/models/User.js';
 import Doctor from '../src/models/Doctor.js';
-import Leave from '../src/models/Leave.js';
-import Appointment from '../src/models/Appointment.js';
-import Notification from '../src/models/Notification.js';
-import BlacklistedToken from '../src/models/BlacklistedToken.js';
+import Patient from '../src/models/Patient.js';
 import { connectDB } from '../src/config/db.js';
 import mongoose from 'mongoose';
 
@@ -13,34 +10,28 @@ const seed = async () => {
   try {
     console.log('Cleaning collections...');
     await User.deleteMany({});
+    await Patient.deleteMany({});
     await Doctor.deleteMany({});
-    await Leave.deleteMany({});
-    await Appointment.deleteMany({});
-    await Notification.deleteMany({});
-    await BlacklistedToken.deleteMany({});
 
     console.log('Seeding users...');
-    const patientHash = await User.hashPassword('password123');
-    const doctorHash = await User.hashPassword('password123');
-    const adminHash = await User.hashPassword('password123');
+    const hash = await User.hashPassword('password123');
 
-    // 1. Patient
-    const patient = await User.create({
-      name: 'Rahul Sharma',
-      email: 'patient@careflow.com',
-      passwordHash: patientHash,
-      role: 'patient',
+    // 1. Admin
+    const admin = await User.create({
+      name: 'CareFlow Administrator',
+      email: 'admin@careflow.com',
+      passwordHash: hash,
+      role: 'admin',
     });
 
     // 2. Doctor
     const doctorUser = await User.create({
       name: 'Dr. Priya Sharma',
       email: 'doctor@careflow.com',
-      passwordHash: doctorHash,
+      passwordHash: hash,
       role: 'doctor',
     });
 
-    // Associated Doctor Profile
     const doctor = await Doctor.create({
       userId: doctorUser._id,
       specialization: 'General Medicine',
@@ -50,34 +41,38 @@ const seed = async () => {
       workingHours: { start: '09:00', end: '17:00' },
     });
 
-    // 3. Admin
-    const admin = await User.create({
-      name: 'CareFlow Administrator',
-      email: 'admin@careflow.com',
-      passwordHash: adminHash,
-      role: 'admin',
+    // 3. Patient A
+    const patientAUser = await User.create({
+      name: 'Rahul Sharma',
+      email: 'patient@careflow.com',
+      passwordHash: hash,
+      role: 'patient',
     });
 
-    console.log('\n=============================================');
-    console.log('Database seeded successfully!');
-    console.log('=============================================');
-    console.log('Demo Credentials:');
-    console.log('---------------------------------------------');
-    console.log('PATIENT:');
-    console.log('  Email:   patient@careflow.com');
-    console.log('  Pass:    password123');
-    console.log('---------------------------------------------');
-    console.log('DOCTOR:');
-    console.log('  Email:   doctor@careflow.com');
-    console.log('  Pass:    password123');
-    console.log('---------------------------------------------');
-    console.log('ADMIN:');
-    console.log('  Email:   admin@careflow.com');
-    console.log('  Pass:    password123');
-    console.log('=============================================\n');
+    await Patient.create({
+      userId: patientAUser._id,
+      medicalHistory: ['Hypertension'],
+      allergies: ['Penicillin'],
+    });
 
-  } catch (error) {
-    console.error('Seeding database failed:', error.message);
+    // 4. Patient B
+    const patientBUser = await User.create({
+      name: 'Amit Kumar',
+      email: 'patientb@careflow.com',
+      passwordHash: hash,
+      role: 'patient',
+    });
+
+    await Patient.create({
+      userId: patientBUser._id,
+      medicalHistory: [],
+      allergies: [],
+    });
+
+    console.log('Seeding complete! Admin, Doctor, and 2 Patients successfully registered.');
+
+  } catch (err) {
+    console.error('Seeding failed:', err.message);
   } finally {
     await mongoose.connection.close();
   }

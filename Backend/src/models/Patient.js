@@ -27,9 +27,6 @@ const patientSchema = new mongoose.Schema(
   }
 );
 
-// Optimize search lookups on userId references
-patientSchema.index({ userId: 1 });
-
 const Patient = mongoose.model('Patient', patientSchema);
 
 export default Patient;
