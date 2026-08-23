@@ -4,6 +4,8 @@ import cookieParser from 'cookie-parser';
 import { config } from './config/env.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import authRoutes from './routes/auth.routes.js';
+import adminRoutes from './routes/admin.routes.js';
+import doctorRoutes from './routes/doctor.routes.js';
 
 const app = express();
 
@@ -17,6 +19,8 @@ app.use(cookieParser());
 
 // Registration of routes
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/doctors', doctorRoutes);
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
