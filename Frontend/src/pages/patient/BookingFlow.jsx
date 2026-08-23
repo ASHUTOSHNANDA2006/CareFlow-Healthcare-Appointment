@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as appointmentService from '../../services/appointment.service';
+import * as aiService from '../../services/ai.service';
 
 const BookingFlow = () => {
   const [doctorId] = useState(new URLSearchParams(window.location.search).get('doctor'));
@@ -10,6 +11,7 @@ const BookingFlow = () => {
   const [date, setDate] = useState('');
   const [slots, setSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [isOnLeave, setIsOnLeave] = useState(false);
   
   const [holdId, setHoldId] = useState(null);
   const [timer, setTimer] = useState(300); // 5 minutes hold countdown timer
@@ -24,12 +26,19 @@ const BookingFlow = () => {
   const handleDateSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsOnLeave(false);
     setLoading(true);
 
     try {
       const res = await appointmentService.getAvailability(doctorId, date);
       if (res.success) {
-        setSlots(res.data.slots);
+        if (res.data.available === false || res.data.reason === 'DOCTOR_ON_LEAVE') {
+          setIsOnLeave(true);
+          setSlots([]);
+          setError('Doctor unavailable — On leave for this date.');
+        } else {
+          setSlots(res.data.slots || []);
+        }
         setStep(2);
       }
     } catch (err) {
@@ -52,7 +61,8 @@ const BookingFlow = () => {
       });
 
       if (res.success) {
-        setHoldId(res.data.appointment._id);
+        const slotHoldId = res.data.slotHold?._id || res.data.appointment?._id;
+        setHoldId(slotHoldId);
         setSelectedSlot(slot);
         setStep(3);
 
@@ -74,7 +84,7 @@ const BookingFlow = () => {
       setError(err.response?.data?.error?.message || 'This slot was locked by another user. Refreshing.');
       // Refresh slots
       const refreshRes = await appointmentService.getAvailability(doctorId, date);
-      setSlots(refreshRes.data.slots);
+      setSlots(refreshRes.data?.slots || []);
     } finally {
       setLoading(false);
     }
@@ -85,17 +95,23 @@ const BookingFlow = () => {
     setLoading(true);
 
     try {
-      // 1. Submit symptoms AI triggers
-      if (symptoms.trim()) {
-        await api.post('/ai/pre-visit', {
-          appointmentId: holdId,
-          symptoms,
-        });
-      }
+      // 1. Confirm booking to convert SlotHold to permanent Appointment
+      const confirmRes = await appointmentService.confirmBooking({ slotHoldId: holdId });
+      if (confirmRes.success) {
+        const confirmedApp = confirmRes.data.appointment;
+        
+        // 2. Submit symptoms AI triggers attached to confirmed appointment
+        if (symptoms.trim() && confirmedApp?._id) {
+          try {
+            await aiService.submitSymptoms({
+              appointmentId: confirmedApp._id,
+              symptoms,
+            });
+          } catch (aiErr) {
+            console.warn('Pre-visit AI analysis warning:', aiErr);
+          }
+        }
 
-      // 2. Confirm booking locks
-      const res = await appointmentService.confirmBooking({ appointmentId: holdId });
-      if (res.success) {
         if (timerInterval) clearInterval(timerInterval);
         setStep(5);
       }
@@ -141,24 +157,37 @@ const BookingFlow = () => {
 
         {step === 2 && (
           <div style={styles.stepContainer}>
-            <h3>Available slots for {date}</h3>
-            <div style={styles.slotGrid}>
-              {slots.map((s, idx) => (
-                <button
-                  key={idx}
-                  disabled={s.status !== 'AVAILABLE' || loading}
-                  onClick={() => handleSlotHold(s)}
-                  style={{
-                    ...styles.slotBtn,
-                    backgroundColor: s.status === 'AVAILABLE' ? '#FFFFFF' : '#f0f0f0',
-                    color: s.status === 'AVAILABLE' ? '#2F6F6D' : '#697776',
-                    border: s.status === 'AVAILABLE' ? '1px solid #2F6F6D' : '1px solid #e0e0e0',
-                  }}
-                >
-                  {s.startTime} - {s.endTime}
-                </button>
-              ))}
-            </div>
+            <h3>Slots for {date}</h3>
+            {isOnLeave ? (
+              <div style={{ textAlign: 'center', padding: '20px', background: '#FDF3F2', color: '#C97872', borderRadius: '8px' }}>
+                <strong>Doctor unavailable — On leave for this date.</strong>
+                <p style={{ marginTop: '8px', fontSize: '0.85rem' }}>Please choose another date for your consultation.</p>
+                <button onClick={() => setStep(1)} className="btn-primary" style={{ marginTop: '14px' }}>Choose Another Date</button>
+              </div>
+            ) : slots.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#697776', padding: '20px' }}>
+                <p>No available slots found for this date.</p>
+                <button onClick={() => setStep(1)} className="btn-primary" style={{ marginTop: '14px' }}>Choose Another Date</button>
+              </div>
+            ) : (
+              <div style={styles.slotGrid}>
+                {slots.map((s, idx) => (
+                  <button
+                    key={idx}
+                    disabled={s.status !== 'AVAILABLE' || loading}
+                    onClick={() => handleSlotHold(s)}
+                    style={{
+                      ...styles.slotBtn,
+                      backgroundColor: s.status === 'AVAILABLE' ? '#FFFFFF' : '#f0f0f0',
+                      color: s.status === 'AVAILABLE' ? '#2F6F6D' : '#697776',
+                      border: s.status === 'AVAILABLE' ? '1px solid #2F6F6D' : '1px solid #e0e0e0',
+                    }}
+                  >
+                    {s.startTime} - {s.endTime}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

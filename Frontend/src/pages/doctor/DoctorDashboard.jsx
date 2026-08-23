@@ -2,15 +2,24 @@ import React, { useState, useEffect } from 'react';
 import * as appointmentService from '../../services/appointment.service';
 import * as aiService from '../../services/ai.service';
 import * as visitNoteService from '../../services/visitNote.service';
+import * as doctorService from '../../services/doctor.service';
+import api from '../../services/api';
 
 const DoctorDashboard = () => {
   const [appointments, setAppointments] = useState([]);
+  const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedApp, setSelectedApp] = useState(null);
   const [appDetail, setAppDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [tab, setTab] = useState('today'); // 'today' | 'all'
+  const [tab, setTab] = useState('today'); // 'today' | 'upcoming' | 'completed' | 'all' | 'leaves'
+
+  // Leave form state
+  const [leaveDate, setLeaveDate] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveMsg, setLeaveMsg] = useState('');
 
   // Consultation form state
   const [clinicalNotes, setClinicalNotes] = useState('');
@@ -25,18 +34,33 @@ const DoctorDashboard = () => {
 
   useEffect(() => {
     loadAppointments();
+    loadLeaves();
+
+    // Auto-poll appointments every 12 seconds for near real-time updates
+    const interval = setInterval(() => {
+      loadAppointments(true);
+    }, 12000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  const loadAppointments = async () => {
-    setLoading(true);
+  const loadAppointments = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await appointmentService.getAppointments();
       if (res.success) setAppointments(res.data.appointments);
     } catch {
-      setError('Failed to load appointments.');
+      if (!silent) setError('Failed to load appointments.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  };
+
+  const loadLeaves = async () => {
+    try {
+      const res = await doctorService.getDoctorMeLeaves();
+      if (res.success) setLeaves(res.data.leaves || []);
+    } catch { /* silent */ }
   };
 
   const openConsultation = async (appId) => {
@@ -55,6 +79,49 @@ const DoctorDashboard = () => {
       setAppDetail(null);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const handleStatusUpdate = async (appId, newStatus) => {
+    try {
+      await api.patch(`/appointments/${appId}/status`, { status: newStatus });
+      await loadAppointments();
+      if (selectedApp === appId) {
+        openConsultation(appId);
+      }
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Failed to update appointment status.');
+    }
+  };
+
+  const handleApplyLeave = async (e) => {
+    e.preventDefault();
+    if (!leaveDate) return;
+    setLeaveLoading(true);
+    setLeaveMsg('');
+    try {
+      const res = await doctorService.addDoctorMeLeave({ date: leaveDate, reason: leaveReason });
+      if (res.success) {
+        setLeaveMsg(`Leave added for ${leaveDate}. ${res.data.conflicts?.affectedCount || 0} conflicting appointments cancelled.`);
+        setLeaveDate('');
+        setLeaveReason('');
+        await loadLeaves();
+        await loadAppointments();
+      }
+    } catch (err) {
+      setLeaveMsg(err.response?.data?.error?.message || 'Failed to add leave.');
+    } finally {
+      setLeaveLoading(false);
+    }
+  };
+
+  const handleDeleteLeave = async (id) => {
+    if (!window.confirm('Remove this leave entry?')) return;
+    try {
+      await doctorService.deleteDoctorMeLeave(id);
+      await loadLeaves();
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Failed to delete leave.');
     }
   };
 
@@ -77,8 +144,8 @@ const DoctorDashboard = () => {
       });
       if (res.success) {
         setSubmitResult(res.data.visitNote);
-        // Refresh appointment list to update status
         await loadAppointments();
+        await openConsultation(selectedApp);
       }
     } catch (err) {
       setSubmitError(err.response?.data?.error?.message || 'Failed to save visit notes.');
@@ -89,185 +156,288 @@ const DoctorDashboard = () => {
 
   const displayed = tab === 'today'
     ? appointments.filter(a => a.date && a.date.startsWith(today))
+    : tab === 'upcoming'
+    ? appointments.filter(a => a.status === 'CONFIRMED' || a.status === 'PENDING')
+    : tab === 'completed'
+    ? appointments.filter(a => a.status === 'COMPLETED')
     : appointments;
 
   const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-  const statusColor = { CONFIRMED: '#2F6F6D', COMPLETED: '#6FA889', CANCELLED: '#C97872', PENDING: '#B8860B' };
+  const statusColor = { CONFIRMED: '#2F6F6D', COMPLETED: '#6FA889', CANCELLED: '#C97872', PENDING: '#B8860B', REJECTED: '#C97872' };
 
   return (
     <div style={styles.container}>
       <h2>Doctor Dashboard</h2>
-      <p style={styles.sub}>Manage consultations and patient visits.</p>
+      <p style={styles.sub}>Manage patient consultations, records, and working availability.</p>
 
       {error && <div style={styles.errorBox}>{error}</div>}
 
       <div style={styles.tabs}>
-        <button style={{ ...styles.tab, ...(tab === 'today' ? styles.activeTab : {}) }} onClick={() => setTab('today')}>Today</button>
-        <button style={{ ...styles.tab, ...(tab === 'all' ? styles.activeTab : {}) }} onClick={() => setTab('all')}>All Appointments</button>
+        {[
+          { key: 'today', label: 'Today' },
+          { key: 'upcoming', label: 'Upcoming' },
+          { key: 'completed', label: 'Completed' },
+          { key: 'all', label: 'All Appointments' },
+          { key: 'leaves', label: 'My Leaves' },
+        ].map(t => (
+          <button
+            key={t.key}
+            style={{ ...styles.tab, ...(tab === t.key ? styles.activeTab : {}) }}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <div style={styles.grid}>
-        {/* Appointment list */}
-        <div>
-          {loading ? (
-            <div style={styles.loadingBox}>Loading appointments...</div>
-          ) : displayed.length === 0 ? (
-            <div className="card" style={styles.empty}>No appointments {tab === 'today' ? 'today' : 'found'}.</div>
+      {tab === 'leaves' ? (
+        <div className="card">
+          <h3>Manage My Leaves</h3>
+          <p style={styles.sub}>Mark days you are unavailable for patient appointments.</p>
+
+          <form onSubmit={handleApplyLeave} style={styles.leaveForm}>
+            <div style={styles.leaveRow}>
+              <input
+                type="date"
+                min={today}
+                value={leaveDate}
+                onChange={e => setLeaveDate(e.target.value)}
+                required
+              />
+              <input
+                type="text"
+                placeholder="Reason (e.g. Conference, Personal)"
+                value={leaveReason}
+                onChange={e => setLeaveReason(e.target.value)}
+              />
+              <button type="submit" className="btn-primary" disabled={leaveLoading}>
+                {leaveLoading ? 'Saving...' : 'Apply Leave'}
+              </button>
+            </div>
+          </form>
+
+          {leaveMsg && <div style={styles.successBox}>{leaveMsg}</div>}
+
+          <h4 style={{ marginTop: '24px' }}>Your Scheduled Leaves</h4>
+          {leaves.length === 0 ? (
+            <p style={{ color: '#697776', fontSize: '0.9rem' }}>No leave dates scheduled.</p>
           ) : (
-            <div style={styles.list}>
-              {displayed.map(a => (
-                <div
-                  key={a._id}
-                  className="card"
-                  style={{ ...styles.appCard, ...(selectedApp === a._id ? styles.selectedCard : {}) }}
-                >
-                  <div style={styles.appHeader}>
-                    <span style={styles.patientName}>{a.patientId?.name || 'Patient'}</span>
-                    <span style={{ ...styles.statusBadge, background: `${statusColor[a.status]}20`, color: statusColor[a.status] }}>
-                      {a.status}
-                    </span>
-                  </div>
-                  <p style={styles.appMeta}>{fmt(a.date)} · {a.startTime} – {a.endTime}</p>
-                  <p style={styles.appMeta}>{a.patientId?.email}</p>
-                  {a.status === 'CONFIRMED' && (
-                    <button style={styles.consultBtn} onClick={() => openConsultation(a._id)}>
-                      Open Consultation
-                    </button>
-                  )}
-                  {a.status === 'COMPLETED' && (
-                    <button style={{ ...styles.consultBtn, background: '#EAF2F0' }} onClick={() => openConsultation(a._id)}>
-                      View Notes
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Reason</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaves.map(l => (
+                  <tr key={l._id}>
+                    <td>{fmt(l.date)}</td>
+                    <td>{l.reason || 'Not specified'}</td>
+                    <td>
+                      <button onClick={() => handleDeleteLeave(l._id)} style={styles.deleteBtn}>
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
-
-        {/* Consultation panel */}
-        <div>
-          {!selectedApp && <div className="card" style={styles.empty}>Select an appointment to begin consultation.</div>}
-
-          {selectedApp && detailLoading && <div style={styles.loadingBox}>Loading patient data...</div>}
-
-          {selectedApp && !detailLoading && appDetail && (
-            <div className="card">
-              <h3>Consultation</h3>
-              <p style={styles.appMeta}><strong>Patient:</strong> {appDetail.patientId?.name} ({appDetail.patientId?.email})</p>
-              <p style={styles.appMeta}><strong>Date:</strong> {fmt(appDetail.date)} {appDetail.startTime}–{appDetail.endTime}</p>
-
-              {/* Show symptom report if available */}
-              {appDetail.symptomReportId && (
-                <div style={styles.symptomsBox}>
-                  <strong>Patient Symptoms:</strong>
-                  <p>{appDetail.symptomReportId.symptoms}</p>
-                  {appDetail.symptomReportId.aiSummary && (
-                    <p style={styles.aiHint}>
-                      AI Urgency: <strong>{appDetail.symptomReportId.aiSummary.urgency}</strong>
-                      {' — '}{appDetail.symptomReportId.aiSummary.chiefComplaint}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Already completed */}
-              {appDetail.visitNoteId ? (
-                <div style={styles.completedBox}>
-                  <h4>Visit Already Completed</h4>
-                  <p><strong>Notes:</strong> {appDetail.visitNoteId.clinicalNotes}</p>
-                  <p><strong>Diagnosis:</strong> {appDetail.visitNoteId.diagnosis || '—'}</p>
-                  <p><strong>Follow-up:</strong> {appDetail.visitNoteId.followUp || '—'}</p>
-                  {appDetail.visitNoteId.prescription?.length > 0 && (
-                    <>
-                      <strong>Prescription:</strong>
-                      <ul>
-                        {appDetail.visitNoteId.prescription.map((p, i) => (
-                          <li key={i}>{p.name} — {p.dosage}, {p.frequency}, {p.duration}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <form onSubmit={handleSubmit} style={styles.form}>
-                  <label style={styles.label}>Clinical Notes *</label>
-                  <textarea
-                    rows={4}
-                    value={clinicalNotes}
-                    onChange={e => setClinicalNotes(e.target.value)}
-                    placeholder="Enter clinical observations..."
-                    required
-                  />
-
-                  <label style={styles.label}>Diagnosis</label>
-                  <input value={diagnosis} onChange={e => setDiagnosis(e.target.value)} placeholder="e.g. Viral pharyngitis" />
-
-                  <label style={styles.label}>Follow-up Instructions</label>
-                  <input value={followUp} onChange={e => setFollowUp(e.target.value)} placeholder="e.g. Return in 7 days if no improvement" />
-
-                  <label style={styles.label}>Prescription</label>
-                  {meds.map((m, idx) => (
-                    <div key={idx} style={styles.medRow}>
-                      <input placeholder="Medicine" value={m.name} onChange={e => handleMedChange(idx, 'name', e.target.value)} />
-                      <input placeholder="Dosage" value={m.dosage} onChange={e => handleMedChange(idx, 'dosage', e.target.value)} />
-                      <input placeholder="Frequency" value={m.frequency} onChange={e => handleMedChange(idx, 'frequency', e.target.value)} />
-                      <input placeholder="Duration" value={m.duration} onChange={e => handleMedChange(idx, 'duration', e.target.value)} />
+      ) : (
+        <div style={styles.grid}>
+          {/* Appointment list */}
+          <div>
+            {loading ? (
+              <div style={styles.loadingBox}>Loading appointments...</div>
+            ) : displayed.length === 0 ? (
+              <div className="card" style={styles.empty}>No appointments found for this filter.</div>
+            ) : (
+              <div style={styles.list}>
+                {displayed.map(a => (
+                  <div
+                    key={a._id}
+                    className="card"
+                    style={{ ...styles.appCard, ...(selectedApp === a._id ? styles.selectedCard : {}) }}
+                  >
+                    <div style={styles.appHeader}>
+                      <span style={styles.patientName}>{a.patientId?.name || 'Patient'}</span>
+                      <span style={{ ...styles.statusBadge, background: `${statusColor[a.status] || '#697776'}20`, color: statusColor[a.status] || '#697776' }}>
+                        {a.status}
+                      </span>
                     </div>
-                  ))}
-                  <button type="button" onClick={() => setMeds(p => [...p, { name: '', dosage: '', frequency: '', duration: '' }])} style={styles.addMedBtn}>
-                    + Add Medication
-                  </button>
+                    <p style={styles.appMeta}>{fmt(a.date)} · {a.startTime} – {a.endTime}</p>
+                    <p style={styles.appMeta}>{a.patientId?.email}</p>
 
-                  {submitError && <div style={styles.errorBox}>{submitError}</div>}
+                    <div style={styles.actionRow}>
+                      {a.status === 'PENDING' && (
+                        <>
+                          <button style={styles.acceptBtn} onClick={() => handleStatusUpdate(a._id, 'CONFIRMED')}>Accept</button>
+                          <button style={styles.rejectBtn} onClick={() => handleStatusUpdate(a._id, 'REJECTED')}>Reject</button>
+                        </>
+                      )}
+                      {(a.status === 'CONFIRMED' || a.status === 'COMPLETED') && (
+                        <button style={styles.consultBtn} onClick={() => openConsultation(a._id)}>
+                          {a.status === 'COMPLETED' ? 'View Visit Notes' : 'Open Consultation'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-                  <button type="submit" className="btn-primary" disabled={submitting} style={{ marginTop: '16px' }}>
-                    {submitting ? 'Saving...' : 'Complete Visit & Generate AI Summary'}
-                  </button>
-                </form>
-              )}
+          {/* Consultation panel */}
+          <div>
+            {!selectedApp && <div className="card" style={styles.empty}>Select an appointment to open clinical consultation notes.</div>}
 
-              {submitResult && (
-                <div style={styles.successBox}>
-                  <strong>Visit saved successfully!</strong>
-                  <p>Visit ID: {submitResult._id}</p>
-                  {submitResult.aiPatientSummary && <p>AI Summary generated for patient.</p>}
-                </div>
-              )}
-            </div>
-          )}
+            {selectedApp && detailLoading && <div style={styles.loadingBox}>Loading patient records...</div>}
+
+            {selectedApp && !detailLoading && appDetail && (
+              <div className="card">
+                <h3>Consultation Record</h3>
+                <p style={styles.appMeta}><strong>Patient:</strong> {appDetail.patientId?.name} ({appDetail.patientId?.email})</p>
+                <p style={styles.appMeta}><strong>Date:</strong> {fmt(appDetail.date)} · {appDetail.startTime}–{appDetail.endTime}</p>
+                <p style={styles.appMeta}><strong>Status:</strong> <span style={{ color: statusColor[appDetail.status], fontWeight: '600' }}>{appDetail.status}</span></p>
+
+                {/* Show symptom report if available */}
+                {appDetail.symptomReportId && (
+                  <div style={styles.symptomsBox}>
+                    <strong>Patient Reported Symptoms:</strong>
+                    <p style={{ marginTop: '4px' }}>{appDetail.symptomReportId.symptoms}</p>
+                    {appDetail.symptomReportId.aiSummary && (
+                      <p style={styles.aiHint}>
+                        AI Urgency: <strong>{appDetail.symptomReportId.aiSummary.urgency}</strong>
+                        {' — '}{appDetail.symptomReportId.aiSummary.chiefComplaint}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Completed visit note */}
+                {appDetail.visitNoteId ? (
+                  <div style={styles.completedBox}>
+                    <h4 style={{ margin: 0, marginBottom: '8px' }}>Finalized Visit Record (Read-Only)</h4>
+                    <p><strong>Clinical Notes:</strong> {appDetail.visitNoteId.clinicalNotes}</p>
+                    <p><strong>Diagnosis:</strong> {appDetail.visitNoteId.diagnosis || '—'}</p>
+                    <p><strong>Follow-up Instructions:</strong> {appDetail.visitNoteId.followUp || '—'}</p>
+                    {appDetail.visitNoteId.prescription?.length > 0 && (
+                      <div style={{ marginTop: '10px' }}>
+                        <strong>Prescription:</strong>
+                        <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
+                          {appDetail.visitNoteId.prescription.map((p, i) => (
+                            <li key={i}>{p.name} — {p.dosage}, {p.frequency}, {p.duration}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {appDetail.visitNoteId.patientSummary?.summary && (
+                      <div style={styles.aiSummaryResult}>
+                        <strong>Generated AI Patient Explainer:</strong>
+                        <p>{appDetail.visitNoteId.patientSummary.summary}</p>
+                        {appDetail.visitNoteId.patientSummary.precautions?.length > 0 && (
+                          <p><strong>Precautions:</strong> {appDetail.visitNoteId.patientSummary.precautions.join(', ')}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit} style={styles.form}>
+                    <label style={styles.label}>Clinical Notes *</label>
+                    <textarea
+                      rows={3}
+                      value={clinicalNotes}
+                      onChange={e => setClinicalNotes(e.target.value)}
+                      placeholder="Clinical observations, patient history..."
+                      required
+                    />
+
+                    <label style={styles.label}>Diagnosis</label>
+                    <input
+                      value={diagnosis}
+                      onChange={e => setDiagnosis(e.target.value)}
+                      placeholder="e.g. Acute viral rhinitis"
+                    />
+
+                    <label style={styles.label}>Follow-up Instructions</label>
+                    <input
+                      value={followUp}
+                      onChange={e => setFollowUp(e.target.value)}
+                      placeholder="e.g. Return in 5 days if fever persists"
+                    />
+
+                    <label style={styles.label}>Prescription</label>
+                    {meds.map((m, idx) => (
+                      <div key={idx} style={styles.medRow}>
+                        <input placeholder="Medicine Name" value={m.name} onChange={e => handleMedChange(idx, 'name', e.target.value)} />
+                        <input placeholder="Dosage (500mg)" value={m.dosage} onChange={e => handleMedChange(idx, 'dosage', e.target.value)} />
+                        <input placeholder="Frequency (Twice daily)" value={m.frequency} onChange={e => handleMedChange(idx, 'frequency', e.target.value)} />
+                        <input placeholder="Duration (5 days)" value={m.duration} onChange={e => handleMedChange(idx, 'duration', e.target.value)} />
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setMeds(p => [...p, { name: '', dosage: '', frequency: '', duration: '' }])} style={styles.addMedBtn}>
+                      + Add Medication
+                    </button>
+
+                    {submitError && <div style={styles.errorBox}>{submitError}</div>}
+
+                    <button type="submit" className="btn-primary" disabled={submitting} style={{ marginTop: '16px' }}>
+                      {submitting ? 'Saving & Finalizing...' : 'Finalize Consultation & Complete Visit'}
+                    </button>
+                  </form>
+                )}
+
+                {submitResult && (
+                  <div style={styles.successBox}>
+                    <strong>Visit finalized and saved to MongoDB Atlas!</strong>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
 
 const styles = {
   container: { display: 'flex', flexDirection: 'column', gap: '20px' },
-  sub: { color: '#697776', marginTop: '4px' },
+  sub: { color: '#697776', marginTop: '4px', fontSize: '0.9rem' },
   errorBox: { background: '#FDF3F2', color: '#C97872', padding: '12px', borderRadius: '8px' },
   loadingBox: { textAlign: 'center', color: '#697776', padding: '40px' },
   empty: { textAlign: 'center', color: '#697776', padding: '40px' },
-  tabs: { display: 'flex', gap: '12px' },
-  tab: { padding: '8px 20px', borderRadius: '20px', border: '1px solid rgba(47,111,109,0.2)', background: 'transparent', color: '#697776', cursor: 'pointer' },
+  tabs: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
+  tab: { padding: '8px 18px', borderRadius: '20px', border: '1px solid rgba(47,111,109,0.2)', background: 'transparent', color: '#697776', cursor: 'pointer', fontSize: '0.85rem' },
   activeTab: { background: '#2F6F6D', color: '#fff', border: '1px solid #2F6F6D' },
   grid: { display: 'grid', gridTemplateColumns: '340px 1fr', gap: '24px', alignItems: 'start' },
   list: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  appCard: { display: 'flex', flexDirection: 'column', gap: '6px', cursor: 'default' },
+  appCard: { display: 'flex', flexDirection: 'column', gap: '6px' },
   selectedCard: { border: '2px solid #2F6F6D' },
   appHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   patientName: { fontWeight: '600', color: '#263536' },
   statusBadge: { padding: '3px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '600' },
   appMeta: { fontSize: '0.85rem', color: '#697776' },
-  consultBtn: { marginTop: '8px', background: '#2F6F6D', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' },
-  symptomsBox: { background: '#F7F8F5', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.9rem' },
+  actionRow: { display: 'flex', gap: '8px', marginTop: '8px' },
+  acceptBtn: { background: '#2F6F6D', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' },
+  rejectBtn: { background: '#FDF3F2', color: '#C97872', border: '1px solid rgba(201,120,114,0.3)', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' },
+  consultBtn: { width: '100%', background: '#EAF2F0', color: '#2F6F6D', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '600' },
+  symptomsBox: { background: '#F7F8F5', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.875rem' },
   aiHint: { color: '#2F6F6D', fontWeight: '600', marginTop: '8px' },
-  completedBox: { background: '#EAF2F0', padding: '16px', borderRadius: '8px', fontSize: '0.9rem', lineHeight: '1.7' },
-  successBox: { background: '#EAF2F0', padding: '16px', borderRadius: '8px', marginTop: '16px', color: '#2F6F6D' },
-  form: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' },
+  completedBox: { background: '#EAF2F0', padding: '16px', borderRadius: '8px', fontSize: '0.9rem', lineHeight: '1.6' },
+  aiSummaryResult: { marginTop: '12px', background: '#FFFFFF', padding: '12px', borderRadius: '6px', fontSize: '0.85rem' },
+  successBox: { background: '#EAF2F0', color: '#2F6F6D', padding: '12px', borderRadius: '8px', marginTop: '16px' },
+  form: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' },
   label: { fontSize: '0.85rem', fontWeight: '600', color: '#263536' },
   medRow: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '8px' },
   addMedBtn: { background: '#F7F8F5', border: '1px dashed rgba(47,111,109,0.3)', color: '#2F6F6D', padding: '8px', borderRadius: '6px', cursor: 'pointer' },
+  leaveForm: { marginTop: '16px', marginBottom: '16px' },
+  leaveRow: { display: 'grid', gridTemplateColumns: '180px 1fr 140px', gap: '12px' },
+  table: { width: '100%', borderCollapse: 'collapse', marginTop: '12px', fontSize: '0.875rem' },
+  deleteBtn: { background: 'transparent', border: '1px solid #C97872', color: '#C97872', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' },
 };
 
 export default DoctorDashboard;

@@ -1,6 +1,7 @@
 import Appointment from '../models/Appointment.js';
 import Notification from '../models/Notification.js';
 import Doctor from '../models/Doctor.js';
+import Leave from '../models/Leave.js';
 import { getDoctorSlotsForDate } from '../services/appointment/slot.service.js';
 import { holdSlot, confirmBooking } from '../services/appointment/booking.service.js';
 import { syncGoogleCalendarEvent } from '../services/calendar/googleCalendar.service.js';
@@ -74,10 +75,16 @@ export const getAvailability = async (req, res, next) => {
       });
     }
 
+    const searchDate = new Date(date);
+    searchDate.setUTCHours(0, 0, 0, 0);
+    const leave = await Leave.findOne({ doctorId, date: searchDate });
+
     const slots = await getDoctorSlotsForDate(doctorId, date);
     res.status(200).json({
       success: true,
       data: {
+        available: !leave,
+        reason: leave ? 'DOCTOR_ON_LEAVE' : null,
         slots,
       },
     });
@@ -106,6 +113,7 @@ export const holdAppointmentSlot = async (req, res, next) => {
     res.status(201).json({
       success: true,
       data: {
+        slotHold: hold,
         appointment: hold,
       },
     });
@@ -194,6 +202,59 @@ export const getAppointments = async (req, res, next) => {
         appointments,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateAppointmentStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const allowed = ['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
+    if (!status || !allowed.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: `Status must be one of: ${allowed.join(', ')}` },
+      });
+    }
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'APPOINTMENT_NOT_FOUND', message: 'Appointment not found.' },
+      });
+    }
+
+    // Role check: Doctors can manage their assigned appointments, Admins can manage any
+    if (req.user.role === 'doctor') {
+      const doctorProfile = await Doctor.findOne({ userId: req.user._id });
+      if (!doctorProfile || appointment.doctorId.toString() !== doctorProfile._id.toString()) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
+      }
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
+    }
+
+    appointment.status = status;
+    await appointment.save();
+
+    // Create notification for patient
+    const notifType = status === 'CONFIRMED' ? 'BOOKING_CONFIRMATION' : status === 'CANCELLED' || status === 'REJECTED' ? 'CANCELLATION' : 'VISIT_COMPLETED';
+    await Notification.create({
+      recipientId: appointment.patientId,
+      appointmentId: appointment._id,
+      type: notifType,
+      metadata: {
+        date: appointment.date.toISOString().split('T')[0],
+        startTime: appointment.startTime,
+        status: status,
+      },
+    });
+
+    res.status(200).json({ success: true, data: { appointment } });
   } catch (error) {
     next(error);
   }

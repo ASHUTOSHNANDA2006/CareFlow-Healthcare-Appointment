@@ -7,6 +7,7 @@ import {
   getAppointmentById,
   cancelAppointment,
   rescheduleAppointment,
+  updateAppointmentStatus,
   getNotifications,
   markNotificationRead,
 } from '../controllers/appointment.controller.js';
@@ -25,6 +26,7 @@ router.get('/', getAppointments);
 router.get('/notifications', getNotifications);
 router.patch('/notifications/:id/read', markNotificationRead);
 router.get('/:id', getAppointmentById);
+router.patch('/:id/status', updateAppointmentStatus);
 router.patch('/:id/cancel', cancelAppointment);
 router.patch('/:id/reschedule', rescheduleAppointment);
 

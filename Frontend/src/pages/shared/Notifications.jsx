@@ -11,7 +11,8 @@ const NotificationsPage = () => {
     CANCELLATION: 'Appointment Cancelled',
     RESCHEDULE: 'Appointment Rescheduled',
     VISIT_COMPLETED: 'Visit Completed',
-    REMINDER: 'Reminder',
+    DOCTOR_LEAVE_CONFLICT: 'Doctor Leave Alert',
+    REMINDER: 'Medication Reminder',
   };
 
   const typeBg = {
@@ -19,6 +20,7 @@ const NotificationsPage = () => {
     CANCELLATION: '#FDF3F2',
     RESCHEDULE: '#FDF8EE',
     VISIT_COMPLETED: '#EAF2F0',
+    DOCTOR_LEAVE_CONFLICT: '#FDF3F2',
     REMINDER: '#F0F4FF',
   };
 
@@ -27,21 +29,30 @@ const NotificationsPage = () => {
     CANCELLATION: '#C97872',
     RESCHEDULE: '#B8860B',
     VISIT_COMPLETED: '#2F6F6D',
+    DOCTOR_LEAVE_CONFLICT: '#C97872',
     REMINDER: '#4466BB',
   };
 
+  const loadNotifications = async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await notificationService.getNotifications();
+      if (res.success) setNotifications(res.data.notifications || []);
+    } catch {
+      if (!silent) setError('Failed to load notifications.');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await notificationService.getNotifications();
-        if (res.success) setNotifications(res.data.notifications);
-      } catch {
-        setError('Failed to load notifications.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    loadNotifications();
+
+    const interval = setInterval(() => {
+      loadNotifications(true);
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleMarkRead = async (id) => {
