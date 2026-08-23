@@ -1,7 +1,7 @@
 # CareFlow — System Design Architecture Document
 
 ## Executive Summary
-CareFlow is an AI-assisted healthcare appointment coordination platform built for high concurrency, zero double-bookings, reliable notification delivery, and graceful third-party service degradation. This document outlines the key architectural patterns and reliability mechanisms powering the application.
+CareFlow is an AI-assisted healthcare appointment coordination platform built for high concurrency, zero double-bookings, reliable notification delivery, and graceful third-party service degradation. This document outlines the key architectural patterns and failure recovery mechanisms powering the application.
 
 ---
 
@@ -58,7 +58,8 @@ flowchart TD
 ## 3. Slot Hold Reservation Mechanism & Time Awareness
 
 ### Slot Lifecycle State Machine
-$$\text{AVAILABLE} \xrightarrow{\text{Hold}} \text{HELD (5 min)} \xrightarrow{\text{Confirm}} \text{CONFIRMED} \xrightarrow{\text{Complete}} \text{COMPLETED}$$
+`AVAILABLE` ➔ `HELD (5 min)` ➔ `CONFIRMED` ➔ `COMPLETED`
+*(Expired Holds: `HELD` ➔ `EXPIRED / AVAILABLE`)*
 
 - **300-Second Hold Lock**: Slot holds automatically expire after 300 seconds (`expiresAt = now + 300s`).
 - **Real-Time Timezone Filtering**: Available slots are computed relative to current local time in `Asia/Kolkata`. Slots in the past relative to the current timestamp are marked `PAST_DATE` / unbookable.
@@ -81,7 +82,7 @@ flowchart LR
 ```
 
 - **Persistence First**: All notifications are saved to MongoDB before network transmission.
-- **Exponential Backoff**: Failed email dispatches increment `retryCount` and retry at $2^{\text{retryCount}} \times 30\text{s}$ intervals.
+- **Exponential Backoff**: Failed email dispatches increment `retryCount` and retry at `(2 ^ retryCount) × 30s` intervals.
 - **Non-Blocking Execution**: Email dispatches run asynchronously, maintaining rapid API response times.
 - **AI Graceful Degradation**: On Google Gemini rate limits (HTTP 429), symptoms remain safely persisted with `aiStatus = 'PENDING'`, displaying an informative status to the user without breaking booking flows.
 
@@ -92,9 +93,9 @@ flowchart LR
 | Collection | Primary Key / Ref | Indexes & Constraints |
 |---|---|---|
 | **Users** | `_id` | `{ email: 1 }` (Unique) |
-| **Doctors** | `userId` $\rightarrow$ User | `{ userId: 1 }` (Unique) |
-| **Leaves** | `doctorId` $\rightarrow$ Doctor | `{ doctorId: 1, date: 1 }` (Unique) |
+| **Doctors** | `userId` → User | `{ userId: 1 }` (Unique) |
+| **Leaves** | `doctorId` → Doctor | `{ doctorId: 1, date: 1 }` (Unique) |
 | **Appointments** | `doctorId`, `patientId` | Partial Unique `{ doctorId: 1, date: 1, startTime: 1 }` |
-| **SymptomReports**| `appointmentId` $\rightarrow$ Appt | `{ appointmentId: 1 }` (Unique) |
-| **VisitNotes** | `appointmentId` $\rightarrow$ Appt | `{ appointmentId: 1 }` (Unique) |
-| **Notifications** | `recipientId` $\rightarrow$ User | `{ recipientId: 1, status: 1 }` |
+| **SymptomReports**| `appointmentId` → Appt | `{ appointmentId: 1 }` (Unique) |
+| **VisitNotes** | `appointmentId` → Appt | `{ appointmentId: 1 }` (Unique) |
+| **Notifications** | `recipientId` → User | `{ recipientId: 1, status: 1 }` |
