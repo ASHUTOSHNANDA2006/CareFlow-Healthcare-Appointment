@@ -1,105 +1,100 @@
-# CareFlow — System Design
+# CareFlow — System Design Architecture Document
 
-## 1. Overview
+## Executive Summary
+CareFlow is an AI-assisted healthcare appointment coordination platform built for high concurrency, zero double-bookings, reliable notification delivery, and graceful third-party service degradation. This document outlines the key architectural patterns and reliability mechanisms powering the application.
 
-CareFlow is an AI-assisted healthcare appointment coordination platform built using the MERN stack. The system separates patient, doctor and admin workflows while connecting appointment scheduling, AI-assisted summaries, notifications and Google Calendar synchronization.
+---
 
-The main architectural objective is reliability: an appointment must remain consistent even when multiple users attempt to book the same slot, a doctor becomes unavailable, or an external service such as an LLM, email provider or calendar API fails.
+## 1. Double-Booking Prevention & Concurrency Control
 
-## 2. Double-Booking Prevention
+```mermaid
+sequenceDiagram
+    autonumber
+    actor PatientA as Patient A
+    actor PatientB as Patient B
+    participant API as Express API Server
+    participant DB as MongoDB Atlas
 
-The frontend displays available slots, but it is not treated as the source of truth. The backend validates working hours and doctor leave and then performs the reservation against MongoDB.
-
-A selected slot can first enter a temporary `HELD` state. The appointment stores a `holdExpiresAt` value. Once the patient confirms, the appointment becomes `CONFIRMED`; if the hold expires, it becomes available again.
-
-The booking operation uses an atomic database-level strategy so simultaneous requests cannot both successfully reserve the same doctor/date/time combination. If another request wins the race, the second request receives a `SLOT_UNAVAILABLE` response and the frontend refreshes availability.
-
-This design prevents relying on client-side checks, which are inherently unsafe under concurrent requests.
-
-## 3. Slot Hold Mechanism
-
-The slot lifecycle is:
-
-```text
-AVAILABLE → HELD → CONFIRMED
-                 ↘
-                  EXPIRED → AVAILABLE
+    PatientA->>API: POST /api/appointments/hold (09:00 - 09:30)
+    PatientB->>API: POST /api/appointments/hold (09:00 - 09:30)
+    API->>DB: Atomic Insert into SlotHold
+    DB-->>API: Patient A -> 201 Created (Hold ID)
+    DB-->>API: Patient B -> E11000 Duplicate Key
+    API-->>PatientA: 201 Created (5-min Lock)
+    API-->>PatientB: 409 Conflict (Slot Held)
 ```
 
-When a patient selects a slot, the backend creates a temporary hold with an expiration timestamp. This prevents another booking flow from taking the slot while the first patient completes the confirmation step.
+### Multi-Tiered Concurrency Strategy
+1. **Atomic SlotHold Locks**: Before confirmation, slot hold requests perform an atomic insert into `SlotHold`, backed by a unique compound index on `{ doctorId, date, startTime }`. Simultaneous requests hit storage-engine level locking. The second request fails with `E11000`, returned as HTTP 409 Conflict.
+2. **Partial Unique Index on Appointments**:
+   Confirmed appointments enforce a partial unique index:
+   ```javascript
+   { doctorId: 1, date: 1, startTime: 1 },
+   { partialFilterExpression: { status: { $in: ['PENDING', 'CONFIRMED', 'COMPLETED'] } } }
+   ```
+   If two confirmation requests race, MongoDB guarantees only one succeeds. When an appointment is `CANCELLED`, it exits the index filter, unlocking the slot instantly.
 
-Expired holds are not treated as confirmed appointments. The system can release them through an expiry/background-job process or by checking the expiration during subsequent availability operations.
+---
 
-## 4. Doctor Leave Conflict Handling
+## 2. Doctor Leave Conflict Management
 
-Doctor leave is stored separately and checked whenever availability is generated or a booking is attempted.
-
-When an administrator adds leave for a date, the system searches for existing appointments for that doctor and date. Existing appointments are not silently deleted. Instead, the affected appointments are identified as conflicts and the relevant patients are notified.
-
-This creates an explicit conflict-resolution workflow:
-
-```text
-Doctor Leave
-     ↓
-Find Existing Appointments
-     ↓
-Conflict?
-  /       \
-No        Yes
- |         |
-Done    Notify Patients
+```mermaid
+flowchart TD
+    A[Admin Applies Leave] --> B[Insert Record with Unique Index {doctorId, date}]
+    B --> C[Fetch Active Appointments on Date]
+    C --> D{Conflicting Bookings?}
+    D -- Yes --> E[Bulk Update Status to CANCELLED]
+    E --> F[Delete/Update Google Calendar Events]
+    E --> G[Enqueue DOCTOR_LEAVE_CONFLICT Notifications]
+    G --> H[Dispatch Email & In-App Alerts]
 ```
 
-The same leave validation is applied to new bookings so patients cannot book a doctor on a leave date.
+- **Atomic Leave Registration**: Leaves use a unique index on `{ doctorId: 1, date: 1 }` to block duplicate leave entries.
+- **Cascading Resolution**: Upon leave creation, a background handler finds all `PENDING` and `CONFIRMED` appointments on that date.
+- **Auto-Cancellation & Alerts**: Conflicting bookings are updated to `CANCELLED` (`reason: "Doctor on leave"`), releasing calendar slots and triggering Nodemailer emails and system alerts for affected patients.
 
-## 5. Notification Reliability
+---
 
-Notifications are modeled as application records rather than being sent directly inside every business operation.
+## 3. Slot Hold Reservation Mechanism & Time Awareness
 
-For example, after an appointment is confirmed, the system creates a notification record. A background worker processes pending notifications and sends them through the configured email provider.
+### Slot Lifecycle State Machine
+$$\text{AVAILABLE} \xrightarrow{\text{Hold}} \text{HELD (5 min)} \xrightarrow{\text{Confirm}} \text{CONFIRMED} \xrightarrow{\text{Complete}} \text{COMPLETED}$$
 
-Notification records contain status, retry count, scheduled time and the latest error. Failed deliveries can be retried using a bounded retry strategy. This prevents a temporary email-provider failure from causing the appointment transaction itself to fail.
+- **300-Second Hold Lock**: Slot holds automatically expire after 300 seconds (`expiresAt = now + 300s`).
+- **Real-Time Timezone Filtering**: Available slots are computed relative to current local time in `Asia/Kolkata`. Slots in the past relative to the current timestamp are marked `PAST_DATE` / unbookable.
+- **Hold Cleanup Janitor**: A background worker polls for expired holds (`expiresAt <= now`) and releases slots automatically.
 
-The same principle applies to calendar synchronization: appointment state remains authoritative in MongoDB, while Google Calendar synchronization is treated as an external side effect that can be retried.
+---
 
-## 6. LLM Architecture and Failure Handling
+## 4. Notification Pipeline & Failure Resilience
 
-CareFlow uses the `@google/genai` SDK for two controlled AI tasks: generating a pre-visit doctor brief and converting post-visit clinical notes into a patient-friendly summary.
-
-The pipeline is:
-
-```text
-Input
- ↓
-Validation
- ↓
-Prompt Builder
- ↓
-Google GenAI
- ↓
-Structured responseSchema
- ↓
-Runtime Validation
- ↓
-Business Validation
- ↓
-MongoDB
+```mermaid
+flowchart LR
+    Event[System Event] --> Queue[Insert into MongoDB Notification Queue]
+    Queue --> Worker[Background Email Worker]
+    Worker --> SMTP{Nodemailer SMTP}
+    SMTP -- Success --> Sent[Status: SENT]
+    SMTP -- Failure --> Retry{retryCount < 3?}
+    Retry -- Yes --> Backoff[Exponential Backoff Retry]
+    Backoff --> Worker
+    Retry -- No --> Dead[Status: FAILED]
 ```
 
-The response schema constrains the shape and allowed fields of the model output. Runtime and business validation are still required because structured output does not guarantee factual correctness.
+- **Persistence First**: All notifications are saved to MongoDB before network transmission.
+- **Exponential Backoff**: Failed email dispatches increment `retryCount` and retry at $2^{\text{retryCount}} \times 30\text{s}$ intervals.
+- **Non-Blocking Execution**: Email dispatches run asynchronously, maintaining rapid API response times.
+- **AI Graceful Degradation**: On Google Gemini rate limits (HTTP 429), symptoms remain safely persisted with `aiStatus = 'PENDING'`, displaying an informative status to the user without breaking booking flows.
 
-The LLM is therefore treated as an untrusted inference service rather than a trusted database source.
+---
 
-If the LLM fails, times out or produces invalid output, the system records the AI operation as failed and keeps the appointment workflow operational. The doctor or patient can continue using the core appointment features, while the AI operation can be retried separately.
+## 5. Summary Database Schema
 
-## 7. Security and Authorization
-
-Authentication uses JWTs stored in HTTP-only cookies rather than browser local storage. Each token contains a unique `jti`. During logout or revocation, the `jti` is stored in a blacklist collection. A MongoDB TTL index automatically removes blacklist records after their expiration time.
-
-Role-based authorization is enforced on the backend for patient, doctor and admin operations. Frontend route protection is used for user experience but is not considered a security boundary.
-
-## 8. Conclusion
-
-CareFlow is intentionally designed around a few high-value engineering principles: MongoDB is the source of truth for appointment availability, booking consistency is enforced server-side, external integrations are isolated from core transactional state, and AI is treated as an assistive inference layer rather than an authoritative clinical source.
-
-This keeps the prototype manageable while directly addressing the assignment's key evaluation areas: double-booking prevention, slot holds, doctor leave conflicts, notification reliability, LLM failure handling, database design and API architecture.
+| Collection | Primary Key / Ref | Indexes & Constraints |
+|---|---|---|
+| **Users** | `_id` | `{ email: 1 }` (Unique) |
+| **Doctors** | `userId` $\rightarrow$ User | `{ userId: 1 }` (Unique) |
+| **Leaves** | `doctorId` $\rightarrow$ Doctor | `{ doctorId: 1, date: 1 }` (Unique) |
+| **Appointments** | `doctorId`, `patientId` | Partial Unique `{ doctorId: 1, date: 1, startTime: 1 }` |
+| **SymptomReports**| `appointmentId` $\rightarrow$ Appt | `{ appointmentId: 1 }` (Unique) |
+| **VisitNotes** | `appointmentId` $\rightarrow$ Appt | `{ appointmentId: 1 }` (Unique) |
+| **Notifications** | `recipientId` $\rightarrow$ User | `{ recipientId: 1, status: 1 }` |
