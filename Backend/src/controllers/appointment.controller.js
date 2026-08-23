@@ -50,11 +50,21 @@ export const getNotifications = async (req, res, next) => {
 export const markNotificationRead = async (req, res, next) => {
   try {
     const { id } = req.params;
-    await Notification.findOneAndUpdate(
+    const notification = await Notification.findOneAndUpdate(
       { _id: id, recipientId: req.user._id },
-      { status: 'SENT' }
+      { isRead: true },
+      { new: true }
     );
-    res.status(200).json({ success: true });
+    res.status(200).json({ success: true, data: { notification } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const markAllNotificationsRead = async (req, res, next) => {
+  try {
+    await Notification.updateMany({ recipientId: req.user._id, isRead: false }, { $set: { isRead: true } });
+    res.status(200).json({ success: true, message: 'All notifications marked as read.' });
   } catch (error) {
     next(error);
   }
@@ -233,7 +243,7 @@ export const getAppointments = async (req, res, next) => {
 export const updateAppointmentStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, reason } = req.body;
 
     const allowed = ['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'REJECTED'];
     if (!status || !allowed.includes(status)) {
@@ -251,8 +261,15 @@ export const updateAppointmentStatus = async (req, res, next) => {
       });
     }
 
-    // Role check: Doctors can manage their assigned appointments, Admins can manage any
-    if (req.user.role === 'doctor') {
+    // Role check: Patients can cancel own; Doctors can manage assigned; Admins can manage any
+    if (req.user.role === 'patient') {
+      if (appointment.patientId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
+      }
+      if (status !== 'CANCELLED') {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Patients can only cancel appointments.' } });
+      }
+    } else if (req.user.role === 'doctor') {
       const doctorProfile = await Doctor.findOne({ userId: req.user._id });
       if (!doctorProfile || appointment.doctorId.toString() !== doctorProfile._id.toString()) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
@@ -261,19 +278,48 @@ export const updateAppointmentStatus = async (req, res, next) => {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
     }
 
+    // State machine transition validation
+    const currentStatus = appointment.status;
+    const validTransitions = {
+      PENDING: ['CONFIRMED', 'REJECTED', 'CANCELLED'],
+      CONFIRMED: ['COMPLETED', 'CANCELLED', 'REJECTED'],
+      COMPLETED: [],
+      CANCELLED: [],
+      REJECTED: [],
+    };
+
+    if (currentStatus !== status && (!validTransitions[currentStatus] || !validTransitions[currentStatus].includes(status))) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_STATE_TRANSITION',
+          message: `Cannot transition appointment from ${currentStatus} to ${status}.`,
+        },
+      });
+    }
+
     appointment.status = status;
     await appointment.save();
 
-    // Create notification for patient
-    const notifType = status === 'CONFIRMED' ? 'BOOKING_CONFIRMATION' : status === 'CANCELLED' || status === 'REJECTED' ? 'CANCELLATION' : 'VISIT_COMPLETED';
+    // Map status transition to notification type
+    let notifType = 'BOOKING_CONFIRMATION';
+    if (status === 'CONFIRMED') notifType = 'APPOINTMENT_ACCEPTED';
+    else if (status === 'REJECTED') notifType = 'APPOINTMENT_REJECTED';
+    else if (status === 'CANCELLED') notifType = 'CANCELLATION';
+    else if (status === 'COMPLETED') notifType = 'CONSULTATION_COMPLETED';
+
+    // Recipient selection
+    const recipientId = (req.user.role === 'patient') ? appointment.doctorId : appointment.patientId;
+
     await Notification.create({
-      recipientId: appointment.patientId,
+      recipientId: recipientId,
       appointmentId: appointment._id,
       type: notifType,
       metadata: {
         date: appointment.date.toISOString().split('T')[0],
         startTime: appointment.startTime,
         status: status,
+        reason: reason || '',
       },
     });
 

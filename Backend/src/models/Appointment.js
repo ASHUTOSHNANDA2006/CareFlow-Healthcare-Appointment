@@ -26,7 +26,7 @@ const appointmentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['CONFIRMED', 'COMPLETED', 'CANCELLED'],
+      enum: ['PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED', 'COMPLETED'],
       default: 'CONFIRMED',
     },
     holdExpiresAt: {
@@ -59,13 +59,13 @@ appointmentSchema.index({ patientId: 1, date: 1 });
 appointmentSchema.index({ status: 1 });
 
 // Concurrency prevention: unique index on active slots per doctor per start time
-// Excludes cancelled slots using partial filter expressions
+// Excludes cancelled and rejected slots using partial filter expressions
 appointmentSchema.index(
   { doctorId: 1, date: 1, startTime: 1 },
   {
     unique: true,
     partialFilterExpression: {
-      status: { $in: ['CONFIRMED', 'COMPLETED'] },
+      status: { $in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
     },
   }
 );

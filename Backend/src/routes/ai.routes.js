@@ -1,5 +1,5 @@
 import express from 'express';
-import { submitSymptoms, submitVisitNotes } from '../controllers/ai.controller.js';
+import { submitSymptoms, submitVisitNotes, updateVisitNotes } from '../controllers/ai.controller.js';
 import { requireAuth } from '../middlewares/auth.middleware.js';
 import { requireRole } from '../middlewares/role.middleware.js';
 
@@ -9,5 +9,6 @@ router.use(requireAuth);
 
 router.post('/pre-visit', requireRole('patient'), submitSymptoms);
 router.post('/post-visit', requireRole('doctor'), submitVisitNotes);
+router.put('/post-visit/:id', requireRole('doctor'), updateVisitNotes);
 
 export default router;

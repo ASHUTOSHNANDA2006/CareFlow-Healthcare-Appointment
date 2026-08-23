@@ -15,11 +15,14 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       enum: [
         'BOOKING_CONFIRMATION',
+        'APPOINTMENT_ACCEPTED',
+        'APPOINTMENT_REJECTED',
         'APPOINTMENT_REMINDER',
         'CANCELLATION',
         'RESCHEDULE',
         'DOCTOR_LEAVE_CONFLICT',
         'MEDICATION_REMINDER',
+        'CONSULTATION_COMPLETED',
       ],
       required: true,
     },
@@ -32,6 +35,10 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       enum: ['PENDING', 'SENT', 'FAILED'],
       default: 'PENDING',
+    },
+    isRead: {
+      type: Boolean,
+      default: false,
     },
     retryCount: {
       type: Number,
@@ -56,8 +63,9 @@ const notificationSchema = new mongoose.Schema(
   }
 );
 
-// Index to quickly fetch pending notifications
+// Index to quickly fetch pending notifications and user notifications
 notificationSchema.index({ status: 1, scheduledFor: 1 });
+notificationSchema.index({ recipientId: 1, isRead: 1 });
 
 const Notification = mongoose.model('Notification', notificationSchema);
 

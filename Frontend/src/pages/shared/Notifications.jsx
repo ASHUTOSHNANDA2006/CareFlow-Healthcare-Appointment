@@ -8,28 +8,40 @@ const NotificationsPage = () => {
 
   const typeLabel = {
     BOOKING_CONFIRMATION: 'Booking Confirmed',
+    APPOINTMENT_ACCEPTED: 'Appointment Accepted',
+    APPOINTMENT_REJECTED: 'Appointment Rejected',
     CANCELLATION: 'Appointment Cancelled',
     RESCHEDULE: 'Appointment Rescheduled',
     VISIT_COMPLETED: 'Visit Completed',
+    CONSULTATION_COMPLETED: 'Consultation Completed',
     DOCTOR_LEAVE_CONFLICT: 'Doctor Leave Alert',
+    MEDICATION_REMINDER: 'Medication Reminder',
     REMINDER: 'Medication Reminder',
   };
 
   const typeBg = {
     BOOKING_CONFIRMATION: '#EAF2F0',
+    APPOINTMENT_ACCEPTED: '#EAF2F0',
+    APPOINTMENT_REJECTED: '#FDF3F2',
     CANCELLATION: '#FDF3F2',
     RESCHEDULE: '#FDF8EE',
     VISIT_COMPLETED: '#EAF2F0',
+    CONSULTATION_COMPLETED: '#EAF2F0',
     DOCTOR_LEAVE_CONFLICT: '#FDF3F2',
+    MEDICATION_REMINDER: '#F0F4FF',
     REMINDER: '#F0F4FF',
   };
 
   const typeColor = {
     BOOKING_CONFIRMATION: '#2F6F6D',
+    APPOINTMENT_ACCEPTED: '#2F6F6D',
+    APPOINTMENT_REJECTED: '#C97872',
     CANCELLATION: '#C97872',
     RESCHEDULE: '#B8860B',
     VISIT_COMPLETED: '#2F6F6D',
+    CONSULTATION_COMPLETED: '#2F6F6D',
     DOCTOR_LEAVE_CONFLICT: '#C97872',
+    MEDICATION_REMINDER: '#4466BB',
     REMINDER: '#4466BB',
   };
 
