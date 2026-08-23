@@ -1,0 +1,222 @@
+import Appointment from '../models/Appointment.js';
+import { getDoctorSlotsForDate } from '../services/appointment/slot.service.js';
+import { holdSlot, confirmBooking } from '../services/appointment/booking.service.js';
+
+export const getAvailability = async (req, res, next) => {
+  try {
+    const { doctorId } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Date is required.',
+        },
+      });
+    }
+
+    const slots = await getDoctorSlotsForDate(doctorId, date);
+    res.status(200).json({
+      success: true,
+      data: {
+        slots,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const holdAppointmentSlot = async (req, res, next) => {
+  try {
+    const { doctorId, date, startTime, endTime } = req.body;
+    const patientId = req.user._id;
+
+    if (!doctorId || !date || !startTime || !endTime) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'doctorId, date, startTime, and endTime are required.',
+        },
+      });
+    }
+
+    const hold = await holdSlot(patientId, doctorId, date, startTime, endTime);
+
+    res.status(201).json({
+      success: true,
+      data: {
+        appointment: hold,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const confirmAppointment = async (req, res, next) => {
+  try {
+    const { appointmentId } = req.body;
+    const patientId = req.user._id;
+
+    if (!appointmentId) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'appointmentId is required.',
+        },
+      });
+    }
+
+    const confirmed = await confirmBooking(appointmentId, patientId);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        appointment: confirmed,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAppointments = async (req, res, next) => {
+  try {
+    const query = {};
+    if (req.user.role === 'patient') {
+      query.patientId = req.user._id;
+    } else if (req.user.role === 'doctor') {
+      query.doctorId = req.user._id;
+    }
+
+    const appointments = await Appointment.find(query)
+      .populate('doctorId', 'specialization workingHours')
+      .populate('patientId', 'name email')
+      .sort({ date: 1, startTime: 1 });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        appointments,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelAppointment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'APPOINTMENT_NOT_FOUND',
+          message: 'Appointment not found.',
+        },
+      });
+    }
+
+    // Patients can cancel their own; admins/doctors can cancel any
+    if (req.user.role === 'patient' && appointment.patientId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'You are not authorized to cancel this appointment.',
+        },
+      });
+    }
+
+    appointment.status = 'CANCELLED';
+    await appointment.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        appointment,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const rescheduleAppointment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { date, startTime, endTime } = req.body;
+
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'date, startTime, and endTime are required.',
+        },
+      });
+    }
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'APPOINTMENT_NOT_FOUND',
+          message: 'Appointment not found.',
+        },
+      });
+    }
+
+    if (req.user.role === 'patient' && appointment.patientId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'You are not authorized to reschedule this appointment.',
+        },
+      });
+    }
+
+    const searchDate = new Date(date);
+    searchDate.setUTCHours(0, 0, 0, 0);
+
+    // Update appointment parameters securely ensuring unique partial filters trigger
+    appointment.date = searchDate;
+    appointment.startTime = startTime;
+    appointment.endTime = endTime;
+    appointment.status = 'CONFIRMED'; // Reschedules automatically lock confirmed status
+
+    try {
+      await appointment.save();
+    } catch (err) {
+      if (err.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            code: 'SLOT_UNAVAILABLE',
+            message: 'The requested slot is already booked.',
+          },
+        });
+      }
+      throw err;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        appointment,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

@@ -6,6 +6,7 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import authRoutes from './routes/auth.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import doctorRoutes from './routes/doctor.routes.js';
+import appointmentRoutes from './routes/appointment.routes.js';
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/doctors', doctorRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {

@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import Doctor from '../models/Doctor.js';
 import Leave from '../models/Leave.js';
+import { handleLeaveConflicts } from '../services/appointment/leave.service.js';
 
 export const createDoctor = async (req, res, next) => {
   try {
@@ -148,10 +149,14 @@ export const addDoctorLeave = async (req, res, next) => {
       reason: reason || '',
     });
 
+    // Check for affected appointments and cancel them (resolving conflicts)
+    const conflictResult = await handleLeaveConflicts(doctorId, date, reason);
+
     res.status(201).json({
       success: true,
       data: {
         leave,
+        conflicts: conflictResult,
       },
     });
   } catch (error) {
