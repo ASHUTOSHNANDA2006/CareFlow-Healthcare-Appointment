@@ -1,11 +1,19 @@
 import User from '../models/User.js';
 import { generateToken, blacklistToken } from '../services/auth/token.service.js';
 
+import Patient from '../models/Patient.js';
+import mongoose from 'mongoose';
+
 export const register = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         success: false,
         error: {
@@ -15,8 +23,10 @@ export const register = async (req, res, next) => {
       });
     }
 
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email }).session(session);
     if (existingUser) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         success: false,
         error: {
@@ -27,14 +37,30 @@ export const register = async (req, res, next) => {
     }
 
     const passwordHash = await User.hashPassword(password);
-    const user = await User.create({
-      name,
-      email,
-      passwordHash,
-      role: role || 'patient',
-    });
+    
+    // Force role to patient. Public registrations cannot select admin/doctor.
+    const user = await User.create(
+      [{
+        name,
+        email,
+        passwordHash,
+        role: 'patient',
+      }],
+      { session }
+    );
 
-    const { token } = generateToken(user);
+    // Create companion Patient profile record
+    await Patient.create(
+      [{
+        userId: user[0]._id,
+      }],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    const { token } = generateToken(user[0]);
 
     // Set cookie
     res.cookie('token', token, {
@@ -48,14 +74,16 @@ export const register = async (req, res, next) => {
       success: true,
       data: {
         user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
+          id: user[0]._id,
+          name: user[0].name,
+          email: user[0].email,
+          role: user[0].role,
         },
       },
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     next(error);
   }
 };

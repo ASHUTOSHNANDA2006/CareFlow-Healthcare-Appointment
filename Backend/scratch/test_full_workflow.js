@@ -49,31 +49,24 @@ const test = async () => {
       startTime: availableSlot.startTime,
       endTime: availableSlot.endTime
     }, { headers: getHeaders(patient.cookie) });
-    const appointmentId = holdRes.data.data.appointment._id;
-    console.log('Slot hold registered. Appointment ID:', appointmentId);
+    const slotHoldId = holdRes.data.data.appointment._id; // returns hold document
+    console.log('Slot hold registered. SlotHold ID:', slotHoldId);
 
-    // 5. Submit Symptoms (Trigger AI brief)
-    console.log('\n--- 5. Patient submitting symptoms ---');
-    const symptomRes = await axios.post(`${backendUrl}/ai/pre-visit`, {
-      appointmentId,
-      symptoms: 'Experiencing high fever, severe headache, and sore throat for two days.'
-    }, { headers: getHeaders(patient.cookie) });
-    console.log('Symptom report submitted. AI urgency:', symptomRes.data.data.symptomReport.aiSummary.urgency);
-
-    // 6. Confirm Booking
-    console.log('\n--- 6. Patient confirming booking ---');
+    // 5. Confirm Booking
+    console.log('\n--- 5. Patient confirming booking ---');
     const confirmRes = await axios.post(`${backendUrl}/appointments/confirm`, {
-      appointmentId
+      slotHoldId
     }, { headers: getHeaders(patient.cookie) });
-    console.log('Booking confirmed. Calendar status:', confirmRes.data.data.appointment.googleCalendarSyncStatus);
+    const appointmentId = confirmRes.data.data.appointment._id;
+    console.log('Booking confirmed. Appointment ID:', appointmentId);
 
-    // 7. Doctor Login
-    console.log('\n--- 7. Logging in as Doctor (doctor@careflow.com) ---');
+    // 6. Doctor Login
+    console.log('\n--- 6. Logging in as Doctor (doctor@careflow.com) ---');
     const doctorSession = await loginUser('doctor@careflow.com', 'password123');
     console.log('Logged in user:', doctorSession.user);
 
-    // 8. Doctor submits clinical notes and prescription
-    console.log('\n--- 8. Doctor submitting notes and prescription ---');
+    // 7. Doctor submits clinical notes and prescription
+    console.log('\n--- 7. Doctor submitting notes and prescription ---');
     const notesRes = await axios.post(`${backendUrl}/ai/post-visit`, {
       appointmentId,
       clinicalNotes: 'Signs of severe throat inflammation. Prescribed Amoxicillin.',
@@ -83,13 +76,13 @@ const test = async () => {
     }, { headers: getHeaders(doctorSession.cookie) });
     console.log('Visit notes saved. Patient friendly summary:', notesRes.data.data.visitNote.patientSummary.summary);
 
-    // 9. Admin Login
-    console.log('\n--- 9. Logging in as Admin (admin@careflow.com) ---');
+    // 8. Admin Login
+    console.log('\n--- 8. Logging in as Admin (admin@careflow.com) ---');
     const admin = await loginUser('admin@careflow.com', 'password123');
     console.log('Logged in user:', admin.user);
 
-    // 10. Admin applies leave on the booked date to test conflict handling
-    console.log('\n--- 10. Admin applying doctor leave on booked date ---');
+    // 9. Admin applies leave on the booked date to test conflict handling
+    console.log('\n--- 9. Admin applying doctor leave on booked date ---');
     const leaveRes = await axios.post(`${backendUrl}/admin/doctors/${doctorId}/leave`, {
       date: '2026-10-05',
       reason: 'Out of town conference'

@@ -1,6 +1,7 @@
 import Doctor from '../../models/Doctor.js';
 import Leave from '../../models/Leave.js';
 import Appointment from '../../models/Appointment.js';
+import SlotHold from '../../models/SlotHold.js';
 
 // Formats minutes as HH:MM
 const formatTime = (minutes) => {
@@ -44,28 +45,38 @@ export const getDoctorSlotsForDate = async (doctorId, dateStr) => {
     current += duration;
   }
 
-  // 3. Retrieve all non-released appointments
-  // Release any expired holds inline to update availability calculations dynamically
+  // 3. Release any expired holds inline to update availability calculations dynamically
   const now = new Date();
-  await Appointment.updateMany(
+  await SlotHold.updateMany(
     {
       doctorId,
       date: searchDate,
       status: 'HELD',
-      holdExpiresAt: { $lte: now },
+      expiresAt: { $lte: now },
     },
     { $set: { status: 'EXPIRED' } }
   );
 
+  // Fetch active bookings
   const activeAppointments = await Appointment.find({
     doctorId,
     date: searchDate,
-    status: { $in: ['HELD', 'CONFIRMED', 'COMPLETED'] },
+    status: { $in: ['CONFIRMED', 'COMPLETED'] },
+  });
+
+  // Fetch active holds
+  const activeHolds = await SlotHold.find({
+    doctorId,
+    date: searchDate,
+    status: 'HELD',
   });
 
   const bookedSlotsMap = new Map();
   activeAppointments.forEach((app) => {
-    bookedSlotsMap.set(app.startTime, app.status);
+    bookedSlotsMap.set(app.startTime, 'CONFIRMED');
+  });
+  activeHolds.forEach((hold) => {
+    bookedSlotsMap.set(hold.startTime, 'HELD');
   });
 
   return slots.map((slot) => {

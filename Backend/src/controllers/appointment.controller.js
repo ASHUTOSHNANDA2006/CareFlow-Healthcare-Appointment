@@ -61,20 +61,20 @@ export const holdAppointmentSlot = async (req, res, next) => {
 
 export const confirmAppointment = async (req, res, next) => {
   try {
-    const { appointmentId } = req.body;
+    const { slotHoldId } = req.body;
     const patientId = req.user._id;
 
-    if (!appointmentId) {
+    if (!slotHoldId) {
       return res.status(400).json({
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'appointmentId is required.',
+          message: 'slotHoldId is required.',
         },
       });
     }
 
-    const confirmed = await confirmBooking(appointmentId, patientId);
+    const confirmed = await confirmBooking(slotHoldId, patientId);
 
     // Queue booking confirmation notification
     await Notification.create({

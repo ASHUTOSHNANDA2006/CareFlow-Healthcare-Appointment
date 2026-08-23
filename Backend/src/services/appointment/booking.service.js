@@ -1,3 +1,4 @@
+import SlotHold from '../../models/SlotHold.js';
 import Appointment from '../../models/Appointment.js';
 import Doctor from '../../models/Doctor.js';
 import Leave from '../../models/Leave.js';
@@ -24,19 +25,34 @@ export const holdSlot = async (patientId, doctorId, dateStr, startTime, endTime)
   }
 
   const now = new Date();
-  const holdExpiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes hold
+  const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes hold
+
+  // Check if there is already a confirmed appointment for this slot
+  const existingAppointment = await Appointment.findOne({
+    doctorId,
+    date: searchDate,
+    startTime,
+    status: { $in: ['CONFIRMED', 'COMPLETED'] }
+  });
+
+  if (existingAppointment) {
+    const error = new Error('The selected slot is already booked.');
+    error.statusCode = 409;
+    error.errorCode = 'SLOT_UNAVAILABLE';
+    throw error;
+  }
 
   try {
-    const appointment = await Appointment.create({
+    const hold = await SlotHold.create({
       doctorId,
       patientId,
       date: searchDate,
       startTime,
       endTime,
       status: 'HELD',
-      holdExpiresAt,
+      expiresAt,
     });
-    return appointment;
+    return hold;
   } catch (error) {
     if (error.code === 11000) {
       const err = new Error('The selected appointment slot is no longer available.');
@@ -48,55 +64,76 @@ export const holdSlot = async (patientId, doctorId, dateStr, startTime, endTime)
   }
 };
 
-export const confirmBooking = async (appointmentId, patientId) => {
-  const appointment = await Appointment.findById(appointmentId);
-  if (!appointment) {
-    const error = new Error('Appointment not found.');
+export const confirmBooking = async (slotHoldId, patientId) => {
+  const hold = await SlotHold.findById(slotHoldId);
+  if (!hold) {
+    const error = new Error('Slot hold reservation not found.');
     error.statusCode = 404;
-    error.errorCode = 'APPOINTMENT_NOT_FOUND';
+    error.errorCode = 'SLOT_HOLD_NOT_FOUND';
     throw error;
   }
 
-  if (appointment.patientId.toString() !== patientId.toString()) {
+  if (hold.patientId.toString() !== patientId.toString()) {
     const error = new Error('Forbidden.');
     error.statusCode = 403;
     error.errorCode = 'FORBIDDEN';
     throw error;
   }
 
-  if (appointment.status === 'CONFIRMED') {
-    return appointment;
+  if (hold.status === 'CONFIRMED') {
+    // If already confirmed, retrieve the corresponding appointment
+    const app = await Appointment.findOne({ doctorId: hold.doctorId, date: hold.date, startTime: hold.startTime });
+    return app;
   }
 
-  if (appointment.status !== 'HELD') {
+  if (hold.status !== 'HELD') {
     const error = new Error('This slot hold is invalid or has expired.');
     error.statusCode = 400;
     error.errorCode = 'SLOT_HOLD_EXPIRED';
     throw error;
   }
 
-  if (new Date() > appointment.holdExpiresAt) {
-    appointment.status = 'EXPIRED';
-    await appointment.save();
+  if (new Date() > hold.expiresAt) {
+    hold.status = 'EXPIRED';
+    await hold.save();
     const error = new Error('The slot hold reservation has expired.');
     error.statusCode = 400;
     error.errorCode = 'SLOT_HOLD_EXPIRED';
     throw error;
   }
 
-  appointment.status = 'CONFIRMED';
-  appointment.holdExpiresAt = undefined;
-  await appointment.save();
+  // Create permanent appointment record using MongoDB atomic unique validation limits
+  try {
+    const appointment = await Appointment.create({
+      doctorId: hold.doctorId,
+      patientId: hold.patientId,
+      date: hold.date,
+      startTime: hold.startTime,
+      endTime: hold.endTime,
+      status: 'CONFIRMED',
+    });
 
-  return appointment;
+    hold.status = 'CONFIRMED';
+    await hold.save();
+
+    return appointment;
+  } catch (error) {
+    if (error.code === 11000) {
+      const err = new Error('The selected slot was already booked by another user.');
+      err.statusCode = 409;
+      err.errorCode = 'SLOT_UNAVAILABLE';
+      throw err;
+    }
+    throw error;
+  }
 };
 
 export const releaseExpiredHolds = async () => {
   const now = new Date();
-  const res = await Appointment.updateMany(
+  const res = await SlotHold.updateMany(
     {
       status: 'HELD',
-      holdExpiresAt: { $lte: now },
+      expiresAt: { $lte: now },
     },
     { $set: { status: 'EXPIRED' } }
   );
