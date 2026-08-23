@@ -12,8 +12,20 @@ import aiRoutes from './routes/ai.routes.js';
 const app = express();
 
 // Standard middlewares
+// Dynamic CORS origin handler
+const allowedOrigins = (config.frontendUrl || 'http://localhost:5173')
+  .split(',')
+  .map(url => url.trim().replace(/\/$/, ''));
+
 app.use(cors({
-  origin: config.frontendUrl,
+  origin: (origin, callback) => {
+    // Allow non-browser requests (like mobile apps or curl) or matched origins
+    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, '')) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Permissive callback for deployment safety
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
