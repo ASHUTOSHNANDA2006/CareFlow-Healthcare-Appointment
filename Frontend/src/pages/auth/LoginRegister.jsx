@@ -45,7 +45,7 @@ const LoginRegister = () => {
           <Link to="/" style={s.leftLogo}>
             <div style={s.logoIcon}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"
+                <path d="M19 8h-4V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v4H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h4v4a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-4h4a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1z"
                       fill="white" fillOpacity="0.95"/>
               </svg>
             </div>
