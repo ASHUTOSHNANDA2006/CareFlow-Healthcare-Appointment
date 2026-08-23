@@ -42,8 +42,10 @@ const Layout = ({ children }) => {
       {/* Sidebar navigation */}
       <aside style={styles.sidebar}>
         <div style={styles.brand}>
-          <h2 style={styles.logo}>CARE<br />FLOW</h2>
-          <span style={styles.tagline}>Healthcare platform</span>
+          <Link to="/" style={{ textDecoration: 'none' }}>
+            <h2 style={styles.logo}>CARE<br />FLOW</h2>
+            <span style={styles.tagline}>Healthcare platform</span>
+          </Link>
         </div>
         <nav style={styles.nav}>
           {getNavLinks().map((link) => (

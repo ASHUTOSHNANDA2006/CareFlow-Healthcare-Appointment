@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 const LoginRegister = () => {
@@ -41,6 +41,16 @@ const LoginRegister = () => {
 
   return (
     <div style={styles.container}>
+      {/* Top navigation bar to return home */}
+      <div style={styles.topBar}>
+        <Link to="/" style={styles.backLink}>
+          ← Back to Home
+        </Link>
+        <Link to="/" style={styles.brandLogo}>
+          CAREFLOW
+        </Link>
+      </div>
+
       <div style={styles.card}>
         <div style={styles.header}>
           <h2 style={styles.title}>{isLogin ? 'Sign in to CareFlow' : 'Create an Account'}</h2>
@@ -119,11 +129,38 @@ const LoginRegister = () => {
 const styles = {
   container: {
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
     backgroundColor: '#F7F8F5',
     padding: '20px',
+    position: 'relative',
+  },
+  topBar: {
+    position: 'absolute',
+    top: '24px',
+    left: '32px',
+    right: '32px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  backLink: {
+    color: '#2F6F6D',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    textDecoration: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  brandLogo: {
+    color: '#263536',
+    fontSize: '1.1rem',
+    fontWeight: '700',
+    letterSpacing: '0.05em',
+    textDecoration: 'none',
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -184,6 +221,7 @@ const styles = {
     fontSize: '0.95rem',
     fontWeight: '500',
     marginTop: '10px',
+    cursor: 'pointer',
   },
   toggleFooter: {
     marginTop: '30px',
@@ -202,6 +240,7 @@ const styles = {
     padding: 0,
     fontSize: '0.85rem',
     fontWeight: '600',
+    cursor: 'pointer',
   },
 };
 
