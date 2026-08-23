@@ -126,3 +126,29 @@ Use the following seeded accounts for local E2E workflow verification:
 * **Admin Account**:
   * Email: `admin@careflow.com`
   * Password: `password123`
+
+---
+
+## 7. System Design Architecture Write-Up
+
+### 1. Double-Booking Prevention & Concurrency Handling
+CareFlow employs a multi-tiered concurrency strategy to prevent double-booking under high simultaneous user loads:
+- **Atomic SlotHold Locks**: When a patient selects a time slot, a transient `SlotHold` document is created in MongoDB with an atomic unique compound index on `{ doctorId, date, startTime }` and a 5-minute TTL expiration.
+- **MongoDB Partial Unique Index**: The primary `Appointment` collection enforces a unique partial index on `{ doctorId, date, startTime }` where `status` is in `['PENDING', 'CONFIRMED', 'COMPLETED']`. If two patients simultaneously submit confirmation requests for the exact same slot, MongoDB Atlas rejects the second attempt at the database driver level with duplicate key error code `E11000`. The backend catches `E11000` and gracefully responds with HTTP 409 `SLOT_UNAVAILABLE`.
+- **Automatic Slot Release**: When an appointment transitions to `CANCELLED` or `REJECTED`, the partial unique index condition is no longer met for that appointment, instantly unlocking the slot for future bookings without requiring manual DB cleanup.
+
+### 2. Doctor Leave Conflict Management
+- **Atomic Leave Application**: When an admin or doctor applies leave for a specific date, a `Leave` document is created with a unique index on `{ doctorId, date }`.
+- **Cascading Conflict Resolution**: A dedicated background service (`handleLeaveConflicts`) instantly queries MongoDB for all existing `PENDING` and `CONFIRMED` appointments matching the doctor and leave date.
+- **Automatic Cancellation & Notification**: All conflicting appointments are updated to `CANCELLED` status (`reason: "Doctor on leave"`), releasing their calendar slots. The system automatically queues high-priority system alerts and Nodemailer email notifications (`DOCTOR_LEAVE_CONFLICT`) to inform all affected patients.
+
+### 3. Slot Hold Reservation Mechanism
+- **Temporary State Locking**: To prevent slot hoarding, slot holds expire after 300 seconds (5 minutes).
+- **Time-Aware Availability Filtering**: Slot availability calculation dynamically computes current local time in `Asia/Kolkata` (`APP_TIMEZONE`). Slots in the past relative to the current timestamp are automatically marked unbookable.
+- **Background Hold Janitor**: A recurring background task (`releaseExpiredHolds`) polls MongoDB for expired `HELD` slot holds (`expiresAt <= now`) and updates their status to `EXPIRED`, keeping slot availability accurate in real time.
+
+### 4. Notification Pipeline & Failure Resilience
+- **Database Persistence & Retry Queuing**: All system notifications and emails are recorded in the `Notification` collection with tracking properties (`status: PENDING | SENT | FAILED`, `retryCount`, `lastError`, `scheduledFor`).
+- **Resilient Email Worker**: A background worker process periodically fetches `PENDING` or `FAILED` notifications where `retryCount < 3`. Emails are dispatched via Nodemailer SMTP.
+- **Graceful Failure Handling**: Network glitches or rate limits (e.g., SMTP 550 rate limits) record the specific error traceback and increment `retryCount`, scheduling exponential backoff retries without blocking HTTP API execution or causing user request failures.
+
