@@ -5,6 +5,60 @@ import { getDoctorSlotsForDate } from '../services/appointment/slot.service.js';
 import { holdSlot, confirmBooking } from '../services/appointment/booking.service.js';
 import { syncGoogleCalendarEvent } from '../services/calendar/googleCalendar.service.js';
 
+export const getAppointmentById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const appointment = await Appointment.findById(id)
+      .populate({ path: 'doctorId', select: 'specialization workingHours slotDuration', populate: { path: 'userId', select: 'name email' } })
+      .populate('patientId', 'name email')
+      .populate('symptomReportId')
+      .populate('visitNoteId');
+
+    if (!appointment) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Appointment not found.' } });
+    }
+
+    // Authorization: patients can only see their own; doctors can only see theirs
+    if (req.user.role === 'patient' && appointment.patientId._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
+    }
+    if (req.user.role === 'doctor') {
+      const doctorProfile = await Doctor.findOne({ userId: req.user._id });
+      if (!doctorProfile || appointment.doctorId._id.toString() !== doctorProfile._id.toString()) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
+      }
+    }
+
+    res.status(200).json({ success: true, data: { appointment } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getNotifications = async (req, res, next) => {
+  try {
+    const notifications = await Notification.find({ recipientId: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.status(200).json({ success: true, data: { notifications } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const markNotificationRead = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await Notification.findOneAndUpdate(
+      { _id: id, recipientId: req.user._id },
+      { status: 'SENT' }
+    );
+    res.status(200).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAvailability = async (req, res, next) => {
   try {
     const { doctorId } = req.params;

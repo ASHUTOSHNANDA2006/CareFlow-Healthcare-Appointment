@@ -17,21 +17,25 @@ const Layout = ({ children }) => {
       return [
         { label: 'Dashboard', path: '/dashboard' },
         { label: 'Find Doctor', path: '/doctors' },
-        { label: 'Appointments', path: '/dashboard#appointments' },
+        { label: 'Previous Visits', path: '/visits' },
+        { label: 'Notifications', path: '/notifications' },
       ];
     }
     if (user.role === 'doctor') {
       return [
         { label: 'Dashboard', path: '/dashboard' },
+        { label: 'Notifications', path: '/notifications' },
       ];
     }
     if (user.role === 'admin') {
       return [
         { label: 'Dashboard', path: '/dashboard' },
+        { label: 'Notifications', path: '/notifications' },
       ];
     }
     return [];
   };
+
 
   return (
     <div style={styles.layout}>

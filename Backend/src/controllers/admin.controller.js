@@ -1,7 +1,42 @@
 import User from '../models/User.js';
 import Doctor from '../models/Doctor.js';
+import Patient from '../models/Patient.js';
+import Appointment from '../models/Appointment.js';
 import Leave from '../models/Leave.js';
 import { handleLeaveConflicts } from '../services/appointment/leave.service.js';
+
+export const getAdminUsers = async (req, res, next) => {
+  try {
+    const users = await User.find({}, '-passwordHash').sort({ createdAt: -1 });
+    const patients = await Patient.find();
+    const doctors = await Doctor.find().populate('userId', 'name email');
+    res.status(200).json({ success: true, data: { users, patients, doctors } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAdminAppointments = async (req, res, next) => {
+  try {
+    const appointments = await Appointment.find()
+      .populate({ path: 'doctorId', select: 'specialization', populate: { path: 'userId', select: 'name' } })
+      .populate('patientId', 'name email')
+      .sort({ date: -1 })
+      .limit(100);
+    res.status(200).json({ success: true, data: { appointments } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAdminDoctors = async (req, res, next) => {
+  try {
+    const doctors = await Doctor.find().populate('userId', 'name email');
+    res.status(200).json({ success: true, data: { doctors } });
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const createDoctor = async (req, res, next) => {
   try {
