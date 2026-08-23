@@ -40,7 +40,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Admin Applies Leave] --> B[Insert Record with Unique Index {doctorId, date}]
+    A[Admin Applies Leave] --> B["Insert Record with Unique Index (doctorId, date)"]
     B --> C[Fetch Active Appointments on Date]
     C --> D{Conflicting Bookings?}
     D -- Yes --> E[Bulk Update Status to CANCELLED]
