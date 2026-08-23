@@ -19,12 +19,8 @@ const allowedOrigins = (config.frontendUrl || 'http://localhost:5173')
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow non-browser requests (like mobile apps or curl) or matched origins
-    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, '')) || origin.endsWith('.vercel.app')) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Permissive callback for deployment safety
-    }
+    // Dynamic origin reflection ensures cross-domain auth success for any Vercel preview/production links
+    callback(null, true);
   },
   credentials: true,
 }));
