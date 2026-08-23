@@ -43,6 +43,11 @@ const appointmentSchema = new mongoose.Schema(
     googleCalendarEventId: {
       type: String,
     },
+    googleCalendarSyncStatus: {
+      type: String,
+      enum: ['PENDING', 'SYNCED', 'FAILED'],
+      default: 'PENDING',
+    },
   },
   {
     timestamps: true,

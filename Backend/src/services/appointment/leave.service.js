@@ -1,5 +1,6 @@
 import Appointment from '../../models/Appointment.js';
 import User from '../../models/User.js';
+import Notification from '../../models/Notification.js';
 
 export const handleLeaveConflicts = async (doctorId, dateStr, reason) => {
   const leaveDate = new Date(dateStr);
@@ -14,6 +15,20 @@ export const handleLeaveConflicts = async (doctorId, dateStr, reason) => {
 
   if (affectedAppointments.length === 0) {
     return { affectedCount: 0, conflicts: [] };
+  }
+
+  // Queue DOCTOR_LEAVE_CONFLICT notification records
+  for (const app of affectedAppointments) {
+    await Notification.create({
+      recipientId: app.patientId._id,
+      appointmentId: app._id,
+      type: 'DOCTOR_LEAVE_CONFLICT',
+      metadata: {
+        date: dateStr,
+        startTime: app.startTime,
+        reason: reason || 'Doctor placed on leave',
+      },
+    });
   }
 
   // Update status to CANCELLED instead of silently deleting

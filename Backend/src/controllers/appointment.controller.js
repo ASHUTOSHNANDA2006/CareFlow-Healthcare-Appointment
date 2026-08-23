@@ -1,6 +1,8 @@
 import Appointment from '../models/Appointment.js';
+import Notification from '../models/Notification.js';
 import { getDoctorSlotsForDate } from '../services/appointment/slot.service.js';
 import { holdSlot, confirmBooking } from '../services/appointment/booking.service.js';
+import { syncGoogleCalendarEvent } from '../services/calendar/googleCalendar.service.js';
 
 export const getAvailability = async (req, res, next) => {
   try {
@@ -74,6 +76,29 @@ export const confirmAppointment = async (req, res, next) => {
 
     const confirmed = await confirmBooking(appointmentId, patientId);
 
+    // Queue booking confirmation notification
+    await Notification.create({
+      recipientId: patientId,
+      appointmentId: confirmed._id,
+      type: 'BOOKING_CONFIRMATION',
+      metadata: {
+        date: confirmed.date.toISOString().split('T')[0],
+        startTime: confirmed.startTime,
+      },
+    });
+
+    // Synchronize Google Calendar Event (Failure does not break booking transaction status)
+    try {
+      const syncResult = await syncGoogleCalendarEvent(confirmed, 'CREATE');
+      confirmed.googleCalendarEventId = syncResult.eventId;
+      confirmed.googleCalendarSyncStatus = 'SYNCED';
+      await confirmed.save();
+    } catch (calendarError) {
+      console.error('[Google Calendar confirm sync error]:', calendarError.message);
+      confirmed.googleCalendarSyncStatus = 'FAILED';
+      await confirmed.save();
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -139,6 +164,28 @@ export const cancelAppointment = async (req, res, next) => {
     appointment.status = 'CANCELLED';
     await appointment.save();
 
+    // Queue cancellation notification
+    await Notification.create({
+      recipientId: appointment.patientId,
+      appointmentId: appointment._id,
+      type: 'CANCELLATION',
+      metadata: {
+        date: appointment.date.toISOString().split('T')[0],
+        startTime: appointment.startTime,
+      },
+    });
+
+    // Delete Google Calendar Event
+    try {
+      await syncGoogleCalendarEvent(appointment, 'DELETE');
+      appointment.googleCalendarSyncStatus = 'SYNCED';
+      await appointment.save();
+    } catch (calendarError) {
+      console.error('[Google Calendar cancel sync error]:', calendarError.message);
+      appointment.googleCalendarSyncStatus = 'FAILED';
+      await appointment.save();
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -197,6 +244,28 @@ export const rescheduleAppointment = async (req, res, next) => {
 
     try {
       await appointment.save();
+      
+      // Queue Reschedule Notification
+      await Notification.create({
+        recipientId: appointment.patientId,
+        appointmentId: appointment._id,
+        type: 'RESCHEDULE',
+        metadata: {
+          date: date,
+          startTime: startTime,
+        },
+      });
+
+      // Synchronize Google Calendar Event
+      try {
+        await syncGoogleCalendarEvent(appointment, 'UPDATE');
+        appointment.googleCalendarSyncStatus = 'SYNCED';
+        await appointment.save();
+      } catch (calendarError) {
+        console.error('[Google Calendar reschedule sync error]:', calendarError.message);
+        appointment.googleCalendarSyncStatus = 'FAILED';
+        await appointment.save();
+      }
     } catch (err) {
       if (err.code === 11000) {
         return res.status(409).json({

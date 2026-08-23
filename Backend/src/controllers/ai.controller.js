@@ -3,6 +3,7 @@ import VisitNote from '../models/VisitNote.js';
 import Appointment from '../models/Appointment.js';
 import { analyzeSymptoms } from '../services/ai/preVisit.service.js';
 import { summarizeVisit } from '../services/ai/postVisit.service.js';
+import { scheduleMedicationReminders } from '../services/notification/reminder.service.js';
 
 export const submitSymptoms = async (req, res, next) => {
   try {
@@ -111,6 +112,9 @@ export const submitVisitNotes = async (req, res, next) => {
       visitNote.patientSummary = patientSummary;
       visitNote.aiStatus = 'COMPLETED';
       await visitNote.save();
+
+      // Schedule medication reminders dynamically from prescription elements
+      await scheduleMedicationReminders(appointment.patientId, appointment._id, prescription || []);
     } catch (aiError) {
       console.error(`AI Summary failed for VisitNote ${visitNote._id}:`, aiError.message);
       visitNote.aiStatus = 'FAILED';

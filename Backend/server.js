@@ -2,6 +2,7 @@ import app from './src/app.js';
 import { config } from './src/config/env.js';
 import { connectDB } from './src/config/db.js';
 import { releaseExpiredHolds } from './src/services/appointment/booking.service.js';
+import { processNotifications } from './src/services/notification/retry.service.js';
 
 // Connect Database
 connectDB();
@@ -15,6 +16,15 @@ setInterval(async () => {
     }
   } catch (error) {
     console.error('[Expired holds cleanup error]:', error.message);
+  }
+}, 60000);
+
+// Periodically process pending notifications (every 1 minute)
+setInterval(async () => {
+  try {
+    await processNotifications();
+  } catch (error) {
+    console.error('[Background notification worker error]:', error.message);
   }
 }, 60000);
 
