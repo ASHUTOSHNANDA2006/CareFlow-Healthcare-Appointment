@@ -130,13 +130,13 @@ const PreviousVisits = () => {
                       </>
                     )}
 
-                    {detail.visitNoteId.aiPatientSummary && (
+                    {detail.visitNoteId.patientSummary && (
                       <>
                         <h4 style={styles.sectionTitle}>AI Patient Summary</h4>
                         <div style={styles.aiBox}>
-                          <p>{detail.visitNoteId.aiPatientSummary.summary}</p>
-                          {detail.visitNoteId.aiPatientSummary.precautions?.length > 0 && (
-                            <p><strong>Precautions:</strong> {detail.visitNoteId.aiPatientSummary.precautions.join(', ')}</p>
+                          <p>{detail.visitNoteId.patientSummary.summary}</p>
+                          {detail.visitNoteId.patientSummary.precautions?.length > 0 && (
+                            <p><strong>Precautions:</strong> {detail.visitNoteId.patientSummary.precautions.join(', ')}</p>
                           )}
                         </div>
                       </>

@@ -18,6 +18,14 @@ const visitNoteSchema = new mongoose.Schema(
       required: [true, 'Clinical notes are required'],
       trim: true,
     },
+    diagnosis: {
+      type: String,
+      trim: true,
+    },
+    followUp: {
+      type: String,
+      trim: true,
+    },
     prescription: [
       {
         name: { type: String, required: true },

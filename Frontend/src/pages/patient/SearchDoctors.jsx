@@ -4,29 +4,40 @@ import * as doctorService from '../../services/doctor.service';
 
 const SearchDoctors = () => {
   const [doctors, setDoctors] = useState([]);
+  const [specializations, setSpecializations] = useState([]);
   const [specialization, setSpecialization] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
-
   const navigate = useNavigate();
+
+  // Load all doctors on mount to extract dynamic specializations
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const res = await doctorService.getDoctors({});
+        if (res.success) {
+          const docs = res.data.doctors;
+          setDoctors(docs);
+          // Extract unique specializations from real data
+          const unique = [...new Set(docs.map(d => d.specialization).filter(Boolean))].sort();
+          setSpecializations(unique);
+        }
+      } catch { /* silent */ }
+    };
+    init();
+  }, []);
 
   const fetchDoctors = async () => {
     setLoading(true);
     try {
-      const res = await doctorService.getDoctors({
-        search,
-        specialization,
-      });
-      if (res.success) {
-        setDoctors(res.data.doctors);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
+      const res = await doctorService.getDoctors({ search, specialization });
+      if (res.success) setDoctors(res.data.doctors);
+    } catch { /* silent */ } finally {
       setLoading(false);
     }
   };
 
+  // Re-fetch when specialization filter changes
   useEffect(() => {
     fetchDoctors();
   }, [specialization]);
@@ -39,9 +50,8 @@ const SearchDoctors = () => {
   return (
     <div style={styles.container}>
       <h2>Find the right doctor</h2>
-      <p style={styles.sub}>Choose a specialist to book your slot hold reservation.</p>
+      <p style={styles.sub}>Browse available specialists and book your appointment.</p>
 
-      {/* Filters form */}
       <form onSubmit={handleSearchSubmit} style={styles.filterBar}>
         <input
           type="text"
@@ -56,38 +66,36 @@ const SearchDoctors = () => {
           style={styles.select}
         >
           <option value="">All Specializations</option>
-          <option value="Cardiology">Cardiology</option>
-          <option value="Pediatrics">Pediatrics</option>
-          <option value="Neurology">Neurology</option>
-          <option value="General Medicine">General Medicine</option>
+          {specializations.map(s => (
+            <option key={s} value={s}>{s}</option>
+          ))}
         </select>
-        <button type="submit" className="btn-primary" style={styles.searchBtn}>
-          Search
-        </button>
+        <button type="submit" className="btn-primary" style={styles.searchBtn}>Search</button>
       </form>
 
-      {/* Doctor Listings Grid */}
       {loading ? (
-        <div style={styles.skeletonContainer}>
-          <div className="skeleton" style={styles.skeletonCard}></div>
-          <div className="skeleton" style={styles.skeletonCard}></div>
+        <div style={styles.grid}>
+          {[1, 2].map(i => <div key={i} className="skeleton" style={styles.skeletonCard} />)}
         </div>
       ) : doctors.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', color: '#697776' }}>
-          No doctors match your query parameters.
+          No doctors match your query.
         </div>
       ) : (
         <div style={styles.grid}>
           {doctors.map((doc) => (
             <div key={doc._id} className="card" style={styles.docCard}>
+              <div style={styles.avatar}>{(doc.userId?.name || 'Dr')[0]}</div>
               <h3 style={styles.name}>{doc.userId?.name || 'Dr. Health Specialist'}</h3>
-              <p style={styles.spec}>{doc.specialization}</p>
+              <span style={styles.spec}>{doc.specialization}</span>
               <div style={styles.metaRow}>
-                <span><strong>Exp:</strong> {doc.experience} years</span>
+                <span><strong>Exp:</strong> {doc.experience} yrs</span>
                 <span><strong>Slot:</strong> {doc.slotDuration} min</span>
+                <span><strong>Hours:</strong> {doc.workingHours?.start}–{doc.workingHours?.end}</span>
               </div>
+              <p style={styles.qual}>{doc.qualification}</p>
               <button
-                onClick={() => navigate(`/book?doctor=${doc._id}&name=${doc.userId?.name}`)}
+                onClick={() => navigate(`/book?doctor=${doc._id}&name=${encodeURIComponent(doc.userId?.name || 'Doctor')}`)}
                 className="btn-primary"
                 style={styles.bookBtn}
               >
@@ -102,79 +110,32 @@ const SearchDoctors = () => {
 };
 
 const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px',
-  },
-  sub: {
-    color: '#697776',
-    marginTop: '-15px',
-    marginBottom: '20px',
-  },
+  container: { display: 'flex', flexDirection: 'column', gap: '20px' },
+  sub: { color: '#697776', marginTop: '-15px' },
   filterBar: {
-    display: 'flex',
-    gap: '16px',
-    backgroundColor: '#FFFFFF',
-    padding: '16px',
-    borderRadius: '10px',
-    border: '1px solid rgba(47, 111, 109, 0.1)',
-    marginBottom: '20px',
+    display: 'flex', gap: '16px', backgroundColor: '#FFFFFF',
+    padding: '16px', borderRadius: '10px',
+    border: '1px solid rgba(47,111,109,0.1)', flexWrap: 'wrap',
   },
-  searchInput: {
-    flexGrow: 1,
+  searchInput: { flexGrow: 1, minWidth: '180px' },
+  select: { width: '220px' },
+  searchBtn: { padding: '10px 24px' },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' },
+  docCard: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  avatar: {
+    width: '48px', height: '48px', borderRadius: '50%',
+    background: '#2F6F6D', color: '#fff', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '1.2rem',
   },
-  select: {
-    width: '240px',
-  },
-  searchBtn: {
-    padding: '10px 24px',
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-    gap: '24px',
-  },
-  docCard: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-    transition: 'transform 0.2s',
-  },
-  name: {
-    fontSize: '1.25rem',
-    color: '#263536',
-  },
+  name: { fontSize: '1.1rem', color: '#263536', margin: 0 },
   spec: {
-    fontSize: '0.9rem',
-    color: '#2F6F6D',
-    fontWeight: '600',
-    backgroundColor: '#EAF2F0',
-    padding: '4px 8px',
-    borderRadius: '4px',
-    alignSelf: 'flex-start',
+    fontSize: '0.82rem', color: '#2F6F6D', fontWeight: '600',
+    background: '#EAF2F0', padding: '3px 8px', borderRadius: '4px', alignSelf: 'flex-start',
   },
-  metaRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: '0.85rem',
-    color: '#697776',
-    borderTop: '1px solid #F7F8F5',
-    paddingTop: '12px',
-    marginTop: '6px',
-  },
-  bookBtn: {
-    marginTop: '12px',
-    width: '100%',
-  },
-  skeletonContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px',
-  },
-  skeletonCard: {
-    height: '180px',
-  },
+  qual: { fontSize: '0.82rem', color: '#697776' },
+  metaRow: { display: 'flex', gap: '12px', fontSize: '0.82rem', color: '#697776', flexWrap: 'wrap' },
+  bookBtn: { marginTop: '8px', width: '100%' },
+  skeletonCard: { height: '220px', borderRadius: '12px' },
 };
 
 export default SearchDoctors;

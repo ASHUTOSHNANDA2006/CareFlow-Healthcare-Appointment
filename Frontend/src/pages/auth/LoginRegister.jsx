@@ -93,10 +93,9 @@ const LoginRegister = () => {
 
           {!isLogin && (
             <div style={styles.inputGroup}>
-              <label style={styles.label}>I am registering as a</label>
+              <label style={styles.label}>Registering as</label>
               <select value={role} onChange={(e) => setRole(e.target.value)} style={styles.select}>
                 <option value="patient">Patient</option>
-                <option value="admin">Admin</option>
               </select>
             </div>
           )}

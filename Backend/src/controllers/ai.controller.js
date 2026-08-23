@@ -68,7 +68,7 @@ export const submitSymptoms = async (req, res, next) => {
 
 export const submitVisitNotes = async (req, res, next) => {
   try {
-    const { appointmentId, clinicalNotes, prescription } = req.body;
+    const { appointmentId, clinicalNotes, diagnosis, followUp, prescription } = req.body;
     const doctorId = req.user._id;
 
     if (!appointmentId || !clinicalNotes) {
@@ -97,6 +97,8 @@ export const submitVisitNotes = async (req, res, next) => {
       appointmentId,
       doctorId,
       clinicalNotes,
+      diagnosis: diagnosis || '',
+      followUp: followUp || '',
       prescription: prescription || [],
       aiStatus: 'PENDING',
     });

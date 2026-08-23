@@ -161,11 +161,11 @@ const DoctorDashboard = () => {
               {appDetail.symptomReportId && (
                 <div style={styles.symptomsBox}>
                   <strong>Patient Symptoms:</strong>
-                  <p>{appDetail.symptomReportId.rawSymptoms}</p>
-                  {appDetail.symptomReportId.aiAnalysis && (
+                  <p>{appDetail.symptomReportId.symptoms}</p>
+                  {appDetail.symptomReportId.aiSummary && (
                     <p style={styles.aiHint}>
-                      AI Urgency: <strong>{appDetail.symptomReportId.aiAnalysis.urgency}</strong>
-                      {' — '}{appDetail.symptomReportId.aiAnalysis.chiefComplaint}
+                      AI Urgency: <strong>{appDetail.symptomReportId.aiSummary.urgency}</strong>
+                      {' — '}{appDetail.symptomReportId.aiSummary.chiefComplaint}
                     </p>
                   )}
                 </div>
