@@ -2,11 +2,20 @@
 
 > **Healthcare, prepared before you arrive.**
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://health-hbhu00txw-ashutoshnanda2006s-projects.vercel.app/)
 [![MongoDB Atlas](https://img.shields.io/badge/Database-MongoDB%20Atlas-00ED64?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
 [![Node.js](https://img.shields.io/badge/Backend-Node.js%20%2F%20Express-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini%203.6-4285F4?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev)
 [![Google Calendar](https://img.shields.io/badge/Sync-Google%20Calendar%20API-4285F4?style=for-the-badge&logo=googlecalendar&logoColor=white)](https://developers.google.com/calendar)
+
+---
+
+## 🌐 Live Deployment & Links
+
+The project is fully deployed and accessible online:
+- 🚀 **Live Frontend (Vercel)**: [https://health-hbhu00txw-ashutoshnanda2006s-projects.vercel.app/](https://health-hbhu00txw-ashutoshnanda2006s-projects.vercel.app/)
+- ⚙️ **Backend API (Render)**: [https://careflow-healthcare-appointment.onrender.com/api](https://careflow-healthcare-appointment.onrender.com/api)
 
 ---
 
