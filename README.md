@@ -94,7 +94,7 @@ EMAIL_PASS=your_email_app_password
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_REDIRECT_URI=http://localhost:5000/api/auth/google/callback
-FRONTEND_URL=http://localhost:5173](https://health-hbhu00txw-ashutoshnanda2006s-projects.vercel.app/
+FRONTEND_URL=https://health-hbhu00txw-ashutoshnanda2006s-projects.vercel.app/
 ```
 
 Run backend server in development mode:
@@ -117,7 +117,7 @@ npm install
 npm run dev
 ```
 
-Access the application in your browser at `http://localhost:5173/](https://health-hbhu00txw-ashutoshnanda2006s-projects.vercel.app/`.
+Access the application in your browser at `https://health-hbhu00txw-ashutoshnanda2006s-projects.vercel.app/`.
 
 ---
 
