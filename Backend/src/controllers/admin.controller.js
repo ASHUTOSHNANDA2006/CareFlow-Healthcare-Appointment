@@ -235,3 +235,149 @@ export const addDoctorLeave = async (req, res, next) => {
     next(error);
   }
 };
+
+export const getAdminAnalytics = async (req, res, next) => {
+  try {
+    // 1. User & Role Aggregations
+    const userStats = await User.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalUsers: { $sum: 1 },
+          patientsCount: { $sum: { $cond: [{ $eq: ['$role', 'patient'] }, 1, 0] } },
+          doctorsCount: { $sum: { $cond: [{ $eq: ['$role', 'doctor'] }, 1, 0] } },
+          adminsCount: { $sum: { $cond: [{ $eq: ['$role', 'admin'] }, 1, 0] } },
+          activeUsers: { $sum: { $cond: [{ $ne: ['$isActive', false] }, 1, 0] } },
+          deactivatedUsers: { $sum: { $cond: [{ $eq: ['$isActive', false] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    // 2. Appointment Status Aggregations
+    const appointmentStats = await Appointment.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const totalAppointments = await Appointment.countDocuments();
+
+    const statusCounts = {
+      PENDING: 0,
+      CONFIRMED: 0,
+      COMPLETED: 0,
+      CANCELLED: 0,
+      REJECTED: 0,
+    };
+    appointmentStats.forEach(s => {
+      if (statusCounts[s._id] !== undefined) {
+        statusCounts[s._id] = s.count;
+      }
+    });
+
+    // 3. Doctor Workload & Specialization Aggregations
+    const specDistribution = await Doctor.aggregate([
+      {
+        $group: {
+          _id: '$specialization',
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
+
+    const doctorWorkload = await Appointment.aggregate([
+      {
+        $group: {
+          _id: '$doctorId',
+          totalAppointments: { $sum: 1 },
+          upcomingAppointments: {
+            $sum: { $cond: [{ $in: ['$status', ['PENDING', 'CONFIRMED']] }, 1, 0] },
+          },
+          completedAppointments: {
+            $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, 1, 0] },
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'doctors',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'doctorDoc',
+        },
+      },
+      { $unwind: '$doctorDoc' },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'doctorDoc.userId',
+          foreignField: '_id',
+          as: 'userDoc',
+        },
+      },
+      { $unwind: '$userDoc' },
+      {
+        $project: {
+          doctorId: '$_id',
+          name: '$userDoc.name',
+          email: '$userDoc.email',
+          specialization: '$doctorDoc.specialization',
+          totalAppointments: 1,
+          upcomingAppointments: 1,
+          completedAppointments: 1,
+        },
+      },
+      { $sort: { totalAppointments: -1 } },
+    ]);
+
+    // 4. Appointments Over Time (Aggregation by month/year)
+    const monthlyTrends = await Appointment.aggregate([
+      {
+        $group: {
+          _id: {
+            year: { $year: '$date' },
+            month: { $month: '$date' },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': -1, '_id.month': -1 } },
+      { $limit: 6 },
+    ]);
+
+    const overview = userStats[0] || {
+      totalUsers: 0,
+      patientsCount: 0,
+      doctorsCount: 0,
+      adminsCount: 0,
+      activeUsers: 0,
+      deactivatedUsers: 0,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        analytics: {
+          overview: {
+            ...overview,
+            totalAppointments,
+            upcomingAppointments: statusCounts.PENDING + statusCounts.CONFIRMED,
+            completedAppointments: statusCounts.COMPLETED,
+            cancelledAppointments: statusCounts.CANCELLED,
+            rejectedAppointments: statusCounts.REJECTED,
+          },
+          statusCounts,
+          specializationDistribution: specDistribution.map(s => ({ specialization: s._id || 'General', count: s.count })),
+          doctorWorkload,
+          monthlyTrends: monthlyTrends.map(t => ({ year: t._id.year, month: t._id.month, count: t.count })),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

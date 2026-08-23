@@ -3,6 +3,7 @@ import Appointment from '../../models/Appointment.js';
 import Doctor from '../../models/Doctor.js';
 import Leave from '../../models/Leave.js';
 import { getNowInTimezone, parseTime } from './slot.service.js';
+import { syncGoogleCalendarEvent } from '../calendar/googleCalendar.service.js';
 
 export const holdSlot = async (patientId, doctorId, dateStr, startTime, endTime) => {
   // Validate doctor profile
@@ -143,6 +144,18 @@ export const confirmBooking = async (slotHoldId, patientId) => {
 
     hold.status = 'CONFIRMED';
     await hold.save();
+
+    // Synchronize Google Calendar Event and save persistent event metadata
+    try {
+      const syncResult = await syncGoogleCalendarEvent(appointment, 'CREATE');
+      appointment.googleCalendarEventId = syncResult.eventId;
+      appointment.googleCalendarSyncStatus = 'SYNCED';
+      await appointment.save();
+    } catch (calendarErr) {
+      console.error('[Google Calendar confirm sync error]:', calendarErr.message);
+      appointment.googleCalendarSyncStatus = 'FAILED';
+      await appointment.save();
+    }
 
     return appointment;
   } catch (error) {

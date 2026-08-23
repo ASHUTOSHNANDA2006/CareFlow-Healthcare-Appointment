@@ -40,3 +40,8 @@ export const deleteUser = async (id) => {
   return res.data;
 };
 
+export const getAdminAnalytics = async () => {
+  const res = await api.get('/admin/analytics');
+  return res.data;
+};
+
