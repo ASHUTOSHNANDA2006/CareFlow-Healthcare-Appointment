@@ -19,6 +19,7 @@ const BookingFlow = () => {
   const [symptoms, setSymptoms] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [aiMessage, setAiMessage] = useState(null); // set when AI is quota-limited but symptoms saved
 
   const navigate = useNavigate();
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -106,9 +107,14 @@ const BookingFlow = () => {
         const confirmedApp = confirmRes.data.appointment;
         if (symptoms.trim() && confirmedApp?._id) {
           try {
-            await aiService.submitSymptoms({ appointmentId: confirmedApp._id, symptoms });
+            const aiRes = await aiService.submitSymptoms({ appointmentId: confirmedApp._id, symptoms });
+            // If AI quota exceeded, show user-friendly message (symptoms ARE saved)
+            if (aiRes?.data?.aiMessage) {
+              setAiMessage(aiRes.data.aiMessage);
+            }
           } catch (aiErr) {
             console.warn('Pre-visit AI warning:', aiErr);
+            // Even if AI call fails entirely, booking succeeded — don't block user
           }
         }
         if (timerInterval) clearInterval(timerInterval);
@@ -344,8 +350,30 @@ const BookingFlow = () => {
             <h3 style={{ ...s.stepTitle, color: '#065f46' }}>Appointment Confirmed!</h3>
             <p style={s.stepDesc}>
               Your appointment has been successfully booked and synced to your Google Calendar.
-              {symptoms && <><br />Your AI pre-visit brief will be ready for your doctor.</>}
             </p>
+
+            {/* AI quota-exceeded notice */}
+            {aiMessage && (
+              <div style={s.aiNoticeBox}>
+                <span style={s.aiNoticeIcon}>🧠</span>
+                <div style={s.aiNoticeContent}>
+                  <strong style={s.aiNoticeTitle}>Symptoms Saved</strong>
+                  <p style={s.aiNoticeText}>{aiMessage}</p>
+                </div>
+              </div>
+            )}
+
+            {/* When AI worked normally */}
+            {!aiMessage && symptoms && (
+              <div style={{ ...s.aiNoticeBox, background: '#d1fae5', borderColor: 'rgba(5,150,105,0.15)' }}>
+                <span style={s.aiNoticeIcon}>✦</span>
+                <div style={s.aiNoticeContent}>
+                  <strong style={{ ...s.aiNoticeTitle, color: '#065f46' }}>AI Brief Ready</strong>
+                  <p style={{ ...s.aiNoticeText, color: '#047857' }}>Your pre-visit AI brief has been generated and will be available for your doctor.</p>
+                </div>
+              </div>
+            )}
+
             <div style={s.successMeta}>
               <div style={s.successMetaItem}>📅 {date}</div>
               <div style={s.successMetaItem}>⏱ {selectedSlot?.startTime} – {selectedSlot?.endTime}</div>
@@ -634,6 +662,24 @@ const s = {
     color: '#065f46',
     textAlign: 'center',
   },
+
+  /* AI notice box (quota / success) */
+  aiNoticeBox: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '12px',
+    background: '#fef3c7',
+    border: '1px solid rgba(245,158,11,0.2)',
+    borderRadius: '14px',
+    padding: '16px 18px',
+    width: '100%',
+    textAlign: 'left',
+  },
+  aiNoticeIcon: { fontSize: '1.4rem', lineHeight: 1, flexShrink: 0 },
+  aiNoticeContent: { display: 'flex', flexDirection: 'column', gap: '4px' },
+  aiNoticeTitle: { fontSize: '0.85rem', fontWeight: 800, color: '#92400e' },
+  aiNoticeText: { fontSize: '0.82rem', color: '#b45309', lineHeight: 1.6, margin: 0 },
 };
+
 
 export default BookingFlow;

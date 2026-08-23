@@ -44,7 +44,7 @@ export const submitSymptoms = async (req, res, next) => {
       });
     }
 
-    // Save initial report document
+    // Save initial report document — symptoms are persisted regardless of AI outcome
     const report = await SymptomReport.create({
       patientId,
       appointmentId,
@@ -56,28 +56,41 @@ export const submitSymptoms = async (req, res, next) => {
     appointment.symptomReportId = report._id;
     await appointment.save();
 
-    // Trigger AI pipeline (Graceful failure handled internally)
+    // Trigger AI pipeline (graceful degradation on failure)
+    let aiMessage = null;
     try {
       const aiSummary = await analyzeSymptoms(symptoms);
       report.aiSummary = aiSummary;
       report.aiStatus = 'COMPLETED';
       await report.save();
+      console.log(`[AI Pre-Visit] Completed for SymptomReport ${report._id}`);
     } catch (aiError) {
-      console.error(`AI Analysis failed for SymptomReport ${report._id}:`, aiError.message);
-      report.aiStatus = 'FAILED';
-      await report.save();
+      if (aiError.code === 'AI_QUOTA_EXCEEDED') {
+        // Quota exhausted — symptoms saved, AI pending quota reset (resets daily)
+        report.aiStatus = 'PENDING'; // stays PENDING so a retry worker can pick it up
+        await report.save();
+        aiMessage = `Symptoms saved successfully. AI analysis is temporarily unavailable (daily quota reached). It will be ready before your appointment.`;
+        console.warn(`[AI Pre-Visit] Quota exceeded for SymptomReport ${report._id}. Retry after ${aiError.retryAfterSeconds}s.`);
+      } else {
+        // Other AI failures (model not found, network, etc.)
+        report.aiStatus = 'FAILED';
+        await report.save();
+        console.error(`[AI Pre-Visit] Analysis failed for SymptomReport ${report._id}:`, aiError.message);
+      }
     }
 
     res.status(200).json({
       success: true,
       data: {
         symptomReport: report,
+        aiMessage, // null when AI succeeded, string when quota exceeded
       },
     });
   } catch (error) {
     next(error);
   }
 };
+
 
 export const submitVisitNotes = async (req, res, next) => {
   try {
@@ -138,13 +151,27 @@ export const submitVisitNotes = async (req, res, next) => {
       visitNote.patientSummary = patientSummary;
       visitNote.aiStatus = 'COMPLETED';
       await visitNote.save();
+      console.log(`[AI Post-Visit] Completed for VisitNote ${visitNote._id}`);
 
       // Schedule medication reminders dynamically from prescription elements
       await scheduleMedicationReminders(appointment.patientId, appointment._id, prescription || []);
     } catch (aiError) {
-      console.error(`AI Summary failed for VisitNote ${visitNote._id}:`, aiError.message);
-      visitNote.aiStatus = 'FAILED';
-      await visitNote.save();
+      if (aiError.code === 'AI_QUOTA_EXCEEDED') {
+        // Quota exceeded — visit note is saved with all clinical data, AI summary is pending
+        visitNote.aiStatus = 'PENDING';
+        await visitNote.save();
+        console.warn(`[AI Post-Visit] Quota exceeded for VisitNote ${visitNote._id}. AI summary will be generated when quota resets.`);
+        // Still schedule reminders even without AI summary
+        try {
+          await scheduleMedicationReminders(appointment.patientId, appointment._id, prescription || []);
+        } catch (reminderErr) {
+          console.error('[Reminder] Failed to schedule reminders:', reminderErr.message);
+        }
+      } else {
+        console.error(`[AI Post-Visit] Summary failed for VisitNote ${visitNote._id}:`, aiError.message);
+        visitNote.aiStatus = 'FAILED';
+        await visitNote.save();
+      }
     }
 
     res.status(200).json({
