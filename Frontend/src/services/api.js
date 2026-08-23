@@ -4,11 +4,18 @@ const RENDER_BACKEND_URL = 'https://careflow-healthcare-appointment.onrender.com
 
 // Auto-detect backend URL: env var -> localhost (if on dev machine) -> deployed Render URL
 const getBaseUrl = () => {
-  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-    return 'http://localhost:5000/api';
+  let url = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+  if (!url && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    url = 'http://localhost:5000/api';
   }
-  return RENDER_BACKEND_URL;
+  if (!url) {
+    url = RENDER_BACKEND_URL;
+  }
+  url = url.trim().replace(/\/+$/, '');
+  if (!url.endsWith('/api')) {
+    url = `${url}/api`;
+  }
+  return url;
 };
 
 const api = axios.create({
