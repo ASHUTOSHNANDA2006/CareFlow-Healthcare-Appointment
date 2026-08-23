@@ -6,13 +6,12 @@ import * as aiService from '../../services/ai.service';
 const BookingFlow = () => {
   const [doctorId] = useState(new URLSearchParams(window.location.search).get('doctor'));
   const [doctorName] = useState(new URLSearchParams(window.location.search).get('name') || 'Doctor');
-  
+
   const [step, setStep] = useState(1);
   const [date, setDate] = useState('');
   const [slots, setSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [isOnLeave, setIsOnLeave] = useState(false);
-  
   const [isPastDate, setIsPastDate] = useState(false);
   const [holdId, setHoldId] = useState(null);
   const [timer, setTimer] = useState(300);
@@ -24,15 +23,13 @@ const BookingFlow = () => {
   const navigate = useNavigate();
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-  // Live availability refresh strategy while user sits on Step 2
+  // Live availability refresh while on Step 2
   React.useEffect(() => {
     if (step === 2 && date) {
       const interval = setInterval(async () => {
         try {
           const res = await appointmentService.getAvailability(doctorId, date);
-          if (res.success && res.data.slots) {
-            setSlots(res.data.slots);
-          }
+          if (res.success && res.data.slots) setSlots(res.data.slots);
         } catch { /* silent */ }
       }, 30000);
       return () => clearInterval(interval);
@@ -45,14 +42,13 @@ const BookingFlow = () => {
     setIsOnLeave(false);
     setIsPastDate(false);
     setLoading(true);
-
     try {
       const res = await appointmentService.getAvailability(doctorId, date);
       if (res.success) {
         if (res.data.available === false && res.data.reason === 'DOCTOR_ON_LEAVE') {
           setIsOnLeave(true);
           setSlots([]);
-          setError('Doctor unavailable — On leave for this date.');
+          setError('Doctor unavailable — on leave for this date.');
         } else if (res.data.available === false && res.data.reason === 'PAST_DATE') {
           setIsPastDate(true);
           setSlots([]);
@@ -72,27 +68,18 @@ const BookingFlow = () => {
   const handleSlotHold = async (slot) => {
     setError('');
     setLoading(true);
-
     try {
-      const res = await appointmentService.holdSlot({
-        doctorId,
-        date,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-      });
-
+      const res = await appointmentService.holdSlot({ doctorId, date, startTime: slot.startTime, endTime: slot.endTime });
       if (res.success) {
         const slotHoldId = res.data.slotHold?._id || res.data.appointment?._id;
         setHoldId(slotHoldId);
         setSelectedSlot(slot);
         setStep(3);
-
-        // Start 5 minutes hold lock countdown timer
         const interval = setInterval(() => {
           setTimer((prev) => {
             if (prev <= 1) {
               clearInterval(interval);
-              setError('Your slot reservation hold has expired. Please select another slot.');
+              setError('Your slot reservation has expired. Please select another slot.');
               setStep(2);
               return 300;
             }
@@ -103,7 +90,6 @@ const BookingFlow = () => {
       }
     } catch (err) {
       setError(err.response?.data?.error?.message || 'This slot was locked by another user. Refreshing.');
-      // Refresh slots
       const refreshRes = await appointmentService.getAvailability(doctorId, date);
       setSlots(refreshRes.data?.slots || []);
     } finally {
@@ -114,25 +100,17 @@ const BookingFlow = () => {
   const handleConfirm = async () => {
     setError('');
     setLoading(true);
-
     try {
-      // 1. Confirm booking to convert SlotHold to permanent Appointment
       const confirmRes = await appointmentService.confirmBooking({ slotHoldId: holdId });
       if (confirmRes.success) {
         const confirmedApp = confirmRes.data.appointment;
-        
-        // 2. Submit symptoms AI triggers attached to confirmed appointment
         if (symptoms.trim() && confirmedApp?._id) {
           try {
-            await aiService.submitSymptoms({
-              appointmentId: confirmedApp._id,
-              symptoms,
-            });
+            await aiService.submitSymptoms({ appointmentId: confirmedApp._id, symptoms });
           } catch (aiErr) {
-            console.warn('Pre-visit AI analysis warning:', aiErr);
+            console.warn('Pre-visit AI warning:', aiErr);
           }
         }
-
         if (timerInterval) clearInterval(timerInterval);
         setStep(5);
       }
@@ -145,123 +123,236 @@ const BookingFlow = () => {
 
   const formatTimer = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
+    const sec = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
   };
 
+  const timerPct = (timer / 300) * 100;
+  const timerColor = timer < 60 ? '#ef4444' : timer < 120 ? '#f59e0b' : '#1e8a84';
+
+  const STEP_LABELS = ['Date', 'Slot', 'Symptoms', 'Review', 'Done'];
+
   return (
-    <div style={styles.container}>
-      <div style={styles.progress}>
-        <div style={{ ...styles.progressBar, width: `${(step / 5) * 100}%` }}></div>
+    <div style={s.page}>
+      {/* ── Progress stepper ── */}
+      <div style={s.stepper}>
+        {STEP_LABELS.map((label, i) => {
+          const num = i + 1;
+          const done = step > num;
+          const active = step === num;
+          return (
+            <React.Fragment key={label}>
+              <div style={s.stepperItem}>
+                <div style={{
+                  ...s.stepperDot,
+                  background: done ? '#1e8a84' : active ? 'linear-gradient(135deg, #166f6a, #0a4f4b)' : '#e5e7eb',
+                  color: (done || active) ? '#fff' : '#9ca3af',
+                  boxShadow: active ? '0 4px 12px rgba(22,111,106,0.35)' : 'none',
+                }}>
+                  {done ? '✓' : num}
+                </div>
+                <span style={{ ...s.stepperLabel, color: active ? '#0a2e2b' : done ? '#1e8a84' : '#9ca3af', fontWeight: active ? 700 : 500 }}>
+                  {label}
+                </span>
+              </div>
+              {i < STEP_LABELS.length - 1 && (
+                <div style={{ ...s.stepperLine, background: step > i + 1 ? '#1e8a84' : '#e5e7eb' }} />
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
 
-      <div style={styles.card}>
-        <span style={styles.stepIndicator}>STEP 0{step} OF 05</span>
+      {/* ── Card ── */}
+      <div style={s.card}>
+        {/* Doctor info strip */}
+        <div style={s.doctorStrip}>
+          <div style={s.docAvatar}>{(doctorName?.[0] ?? 'D').toUpperCase()}</div>
+          <div>
+            <div style={s.docName}>{doctorName}</div>
+            <div style={s.docSub}>New Appointment</div>
+          </div>
+        </div>
 
-        {error && <div style={styles.error}>{error}</div>}
+        {/* Error */}
+        {error && (
+          <div style={s.errorBox}>
+            <span>⚠</span> {error}
+          </div>
+        )}
 
+        {/* Timer badge (steps 3 & 4) */}
+        {(step === 3 || step === 4) && (
+          <div style={s.timerWrap}>
+            <div style={s.timerTrack}>
+              <div style={{ ...s.timerFill, width: `${timerPct}%`, background: timerColor }} />
+            </div>
+            <div style={{ ...s.timerText, color: timerColor }}>
+              ⏱ Slot reserved — {formatTimer(timer)} remaining
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 1: Date ── */}
         {step === 1 && (
-          <form onSubmit={handleDateSubmit} style={styles.stepContainer}>
-            <h3>Choose a date for your visit with {doctorName}</h3>
+          <form onSubmit={handleDateSubmit} style={s.stepForm}>
+            <h3 style={s.stepTitle}>Choose appointment date</h3>
+            <p style={s.stepDesc}>Select a date to see available time slots for {doctorName}.</p>
             <input
               type="date"
               value={date}
               min={todayStr}
               onChange={(e) => setDate(e.target.value)}
               required
+              style={s.dateInput}
+              id="booking-date-input"
             />
-            <button type="submit" className="btn-primary" style={styles.btn}>
-              Find Slots
+            <button type="submit" disabled={loading} style={s.primaryBtn}>
+              {loading ? 'Checking availability…' : 'Find Available Slots →'}
             </button>
           </form>
         )}
 
+        {/* ── STEP 2: Slots ── */}
         {step === 2 && (
-          <div style={styles.stepContainer}>
-            <h3>Slots for {date}</h3>
-            {isOnLeave ? (
-              <div style={{ textAlign: 'center', padding: '20px', background: '#FDF3F2', color: '#C97872', borderRadius: '8px' }}>
-                <strong>Doctor unavailable — On leave for this date.</strong>
-                <p style={{ marginTop: '8px', fontSize: '0.85rem' }}>Please choose another date for your consultation.</p>
-                <button onClick={() => setStep(1)} className="btn-primary" style={{ marginTop: '14px' }}>Choose Another Date</button>
-              </div>
-            ) : isPastDate ? (
-              <div style={{ textAlign: 'center', padding: '20px', background: '#FDF3F2', color: '#C97872', borderRadius: '8px' }}>
-                <strong>No appointments available for past dates.</strong>
-                <p style={{ marginTop: '8px', fontSize: '0.85rem' }}>Please choose a current or future date.</p>
-                <button onClick={() => setStep(1)} className="btn-primary" style={{ marginTop: '14px' }}>Choose Valid Date</button>
+          <div style={s.stepForm}>
+            <div style={s.stepHeader2}>
+              <h3 style={s.stepTitle}>Available slots for {date}</h3>
+              <button style={s.backLink} onClick={() => setStep(1)}>← Change date</button>
+            </div>
+            <p style={s.stepDesc}>Select a time slot to place a 5-minute hold.</p>
+
+            {(isOnLeave || isPastDate) ? (
+              <div style={s.unavailBox}>
+                <div style={s.unavailIcon}>{isOnLeave ? '🏖️' : '📅'}</div>
+                <h4 style={s.unavailTitle}>{isOnLeave ? 'Doctor on Leave' : 'Past Date'}</h4>
+                <p style={s.unavailDesc}>
+                  {isOnLeave
+                    ? 'This doctor is on leave for the selected date. Please choose another date.'
+                    : 'Appointments cannot be booked for past dates. Please choose today or a future date.'}
+                </p>
+                <button style={s.primaryBtn} onClick={() => setStep(1)}>Choose Another Date</button>
               </div>
             ) : slots.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#697776', padding: '20px' }}>
-                <p>No available slots found for this date.</p>
-                <button onClick={() => setStep(1)} className="btn-primary" style={{ marginTop: '14px' }}>Choose Another Date</button>
+              <div style={s.unavailBox}>
+                <div style={s.unavailIcon}>😕</div>
+                <h4 style={s.unavailTitle}>No slots available</h4>
+                <p style={s.unavailDesc}>All time slots for this date are booked. Try another date.</p>
+                <button style={s.primaryBtn} onClick={() => setStep(1)}>Choose Another Date</button>
               </div>
             ) : (
-              <div style={styles.slotGrid}>
-                {slots.map((s, idx) => (
-                  <button
-                    key={idx}
-                    disabled={s.status !== 'AVAILABLE' || loading}
-                    onClick={() => handleSlotHold(s)}
-                    style={{
-                      ...styles.slotBtn,
-                      backgroundColor: s.status === 'AVAILABLE' ? '#FFFFFF' : '#f0f0f0',
-                      color: s.status === 'AVAILABLE' ? '#2F6F6D' : '#697776',
-                      border: s.status === 'AVAILABLE' ? '1px solid #2F6F6D' : '1px solid #e0e0e0',
-                    }}
-                  >
-                    {s.startTime} - {s.endTime}
-                  </button>
-                ))}
+              <div style={s.slotGrid}>
+                {slots.map((sl, idx) => {
+                  const avail = sl.status === 'AVAILABLE';
+                  return (
+                    <button
+                      key={idx}
+                      disabled={!avail || loading}
+                      onClick={() => handleSlotHold(sl)}
+                      style={{
+                        ...s.slotBtn,
+                        ...(avail ? s.slotAvailable : s.slotUnavailable),
+                      }}
+                      id={`slot-btn-${idx}`}
+                    >
+                      <span style={s.slotTime}>{sl.startTime}</span>
+                      <span style={s.slotEnd}>–{sl.endTime}</span>
+                      {!avail && <span style={s.slotTaken}>Taken</span>}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
+        {/* ── STEP 3: Symptoms ── */}
         {step === 3 && (
-          <div style={styles.stepContainer}>
-            <div style={styles.timerBadge}>
-              Slot Reserved — {formatTimer(timer)} remaining
+          <div style={s.stepForm}>
+            <h3 style={s.stepTitle}>Describe your symptoms</h3>
+            <p style={s.stepDesc}>
+              This helps your doctor prepare an AI pre-visit brief before your appointment.
+              <br />
+              <em style={{ fontSize: '0.82rem', color: '#9ca3af' }}>You can skip this if you prefer.</em>
+            </p>
+            <div style={s.textareaWrap}>
+              <span style={s.textareaIcon}>🩺</span>
+              <textarea
+                rows={4}
+                placeholder="e.g. Fever since 2 days, headache, mild fatigue…"
+                value={symptoms}
+                onChange={(e) => setSymptoms(e.target.value)}
+                style={s.textarea}
+                id="symptoms-textarea"
+              />
             </div>
-            <h3>Describe your symptoms</h3>
-            <p style={styles.helper}>This helps your doctor prepare before the appointment.</p>
-            <textarea
-              rows="4"
-              placeholder="Fever, headache, chills since last 2 days..."
-              value={symptoms}
-              onChange={(e) => setSymptoms(e.target.value)}
-            />
-            <button onClick={() => setStep(4)} className="btn-primary" style={styles.btn}>
-              Review Booking
+            <button onClick={() => setStep(4)} style={s.primaryBtn}>
+              Review Booking →
             </button>
           </div>
         )}
 
+        {/* ── STEP 4: Review ── */}
         {step === 4 && (
-          <div style={styles.stepContainer}>
-            <div style={styles.timerBadge}>
-              Slot Reserved — {formatTimer(timer)} remaining
+          <div style={s.stepForm}>
+            <h3 style={s.stepTitle}>Review your booking</h3>
+            <p style={s.stepDesc}>Confirm the details below to finalize your appointment.</p>
+
+            <div style={s.reviewCard}>
+              <div style={s.reviewRow}>
+                <span style={s.reviewLabel}>Doctor</span>
+                <span style={s.reviewVal}>{doctorName}</span>
+              </div>
+              <div style={s.reviewDivider} />
+              <div style={s.reviewRow}>
+                <span style={s.reviewLabel}>Date</span>
+                <span style={s.reviewVal}>{date}</span>
+              </div>
+              <div style={s.reviewDivider} />
+              <div style={s.reviewRow}>
+                <span style={s.reviewLabel}>Time Slot</span>
+                <span style={s.reviewVal}>{selectedSlot?.startTime} – {selectedSlot?.endTime}</span>
+              </div>
+              {symptoms && (
+                <>
+                  <div style={s.reviewDivider} />
+                  <div style={{ ...s.reviewRow, alignItems: 'flex-start' }}>
+                    <span style={s.reviewLabel}>Symptoms</span>
+                    <span style={{ ...s.reviewVal, textAlign: 'right', maxWidth: '65%', fontSize: '0.84rem', lineHeight: 1.5 }}>{symptoms}</span>
+                  </div>
+                </>
+              )}
             </div>
-            <h3>Review Details</h3>
-            <div style={styles.detailsBox}>
-              <p><strong>Doctor:</strong> {doctorName}</p>
-              <p><strong>Date:</strong> {date}</p>
-              <p><strong>Time Slot:</strong> {selectedSlot?.startTime} - {selectedSlot?.endTime}</p>
-              {symptoms && <p><strong>Symptoms:</strong> {symptoms}</p>}
+
+            <div style={s.calendarNote}>
+              📆 This appointment will be automatically synced to your Google Calendar.
             </div>
-            <button onClick={handleConfirm} disabled={loading} className="btn-primary" style={styles.btn}>
-              {loading ? 'Confirming...' : 'Confirm Appointment'}
+
+            <button onClick={handleConfirm} disabled={loading} style={s.confirmBtn} id="confirm-appt-btn">
+              {loading ? '⏳ Confirming…' : '✓ Confirm Appointment'}
+            </button>
+            <button onClick={() => setStep(3)} style={s.secondaryBtn}>
+              ← Edit Symptoms
             </button>
           </div>
         )}
 
+        {/* ── STEP 5: Success ── */}
         {step === 5 && (
-          <div style={styles.stepContainer}>
-            <span style={styles.successBadge}>SUCCESS</span>
-            <h3>Appointment Confirmed!</h3>
-            <p>Your appointment has been successfully scheduled and synced to your calendar.</p>
-            <button onClick={() => navigate('/dashboard')} className="btn-primary" style={styles.btn}>
-              Go to Dashboard
+          <div style={{ ...s.stepForm, alignItems: 'center', textAlign: 'center' }}>
+            <div style={s.successCircle}>✓</div>
+            <h3 style={{ ...s.stepTitle, color: '#065f46' }}>Appointment Confirmed!</h3>
+            <p style={s.stepDesc}>
+              Your appointment has been successfully booked and synced to your Google Calendar.
+              {symptoms && <><br />Your AI pre-visit brief will be ready for your doctor.</>}
+            </p>
+            <div style={s.successMeta}>
+              <div style={s.successMetaItem}>📅 {date}</div>
+              <div style={s.successMetaItem}>⏱ {selectedSlot?.startTime} – {selectedSlot?.endTime}</div>
+              <div style={s.successMetaItem}>👨‍⚕️ {doctorName}</div>
+            </div>
+            <button onClick={() => navigate('/dashboard')} style={s.primaryBtn} id="go-to-dashboard-btn">
+              Go to Dashboard →
             </button>
           </div>
         )}
@@ -270,91 +361,278 @@ const BookingFlow = () => {
   );
 };
 
-const styles = {
-  container: {
-    maxWidth: '500px',
-    margin: '40px auto',
+/* ─── Styles ─── */
+const s = {
+  page: {
+    maxWidth: '560px',
+    margin: '0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '24px',
   },
-  progress: {
-    height: '6px',
-    backgroundColor: 'rgba(47, 111, 109, 0.1)',
-    borderRadius: '3px',
-    marginBottom: '20px',
-    overflow: 'hidden',
+
+  /* Stepper */
+  stepper: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0',
+    padding: '20px 0 8px',
   },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#2F6F6D',
-    transition: 'width 0.3s ease',
+  stepperItem: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' },
+  stepperDot: {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '0.82rem',
+    fontWeight: 800,
+    transition: 'all 0.25s',
+    zIndex: 1,
   },
+  stepperLabel: { fontSize: '0.68rem', letterSpacing: '0.03em', textTransform: 'uppercase', transition: 'color 0.25s' },
+  stepperLine: { flex: 1, height: 2, minWidth: '28px', maxWidth: '56px', borderRadius: '9999px', marginBottom: '18px', transition: 'background 0.25s' },
+
   card: {
-    backgroundColor: '#FFFFFF',
-    border: '1px solid rgba(47, 111, 109, 0.1)',
-    borderRadius: '14px',
-    padding: '30px',
-  },
-  stepIndicator: {
-    fontSize: '0.75rem',
-    fontWeight: 'bold',
-    color: '#697776',
-    letterSpacing: '0.05em',
-    marginBottom: '16px',
-    display: 'block',
-  },
-  stepContainer: {
+    background: 'rgba(255,255,255,0.92)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    borderRadius: '24px',
+    border: '1px solid rgba(30,138,132,0.1)',
+    padding: '28px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
   },
-  slotGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, 1fr)',
-    gap: '12px',
+
+  doctorStrip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '14px',
+    background: 'rgba(30,138,132,0.05)',
+    borderRadius: '14px',
+    padding: '14px 18px',
+    border: '1px solid rgba(30,138,132,0.1)',
   },
+  docAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: '12px',
+    background: 'linear-gradient(135deg, #1e8a84, #0a4f4b)',
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '1.1rem',
+    fontWeight: 800,
+    flexShrink: 0,
+    boxShadow: '0 4px 12px rgba(30,138,132,0.3)',
+  },
+  docName: { fontWeight: 800, color: '#0a2e2b', fontSize: '0.95rem', fontFamily: "'Outfit', sans-serif" },
+  docSub: { fontSize: '0.75rem', color: '#9ca3af', marginTop: '2px' },
+
+  errorBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    background: '#fee2e2',
+    border: '1px solid rgba(220,38,38,0.15)',
+    color: '#b91c1c',
+    borderRadius: '10px',
+    padding: '12px 14px',
+    fontSize: '0.87rem',
+  },
+
+  timerWrap: { display: 'flex', flexDirection: 'column', gap: '6px' },
+  timerTrack: { height: '4px', background: '#e5e7eb', borderRadius: '9999px', overflow: 'hidden' },
+  timerFill: { height: '100%', borderRadius: '9999px', transition: 'width 1s linear, background 1s' },
+  timerText: { fontSize: '0.8rem', fontWeight: 700, textAlign: 'center', letterSpacing: '0.02em' },
+
+  stepForm: { display: 'flex', flexDirection: 'column', gap: '18px' },
+  stepHeader2: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  stepTitle: { fontFamily: "'Outfit', sans-serif", fontSize: '1.25rem', fontWeight: 800, color: '#0a2e2b', letterSpacing: '-0.02em' },
+  stepDesc: { fontSize: '0.88rem', color: '#6b7280', lineHeight: 1.6 },
+  backLink: { background: 'transparent', border: 'none', color: '#1e8a84', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: "'Inter', sans-serif", padding: '0' },
+
+  dateInput: {
+    padding: '13px 16px',
+    borderRadius: '12px',
+    border: '1.5px solid #e5e7eb',
+    fontSize: '1rem',
+    color: '#111827',
+    background: '#f9fafb',
+    outline: 'none',
+    width: '100%',
+    fontFamily: "'Inter', sans-serif",
+    cursor: 'pointer',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+  },
+
+  slotGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' },
   slotBtn: {
-    padding: '12px',
-    borderRadius: '8px',
-    fontSize: '0.9rem',
-    fontWeight: '600',
-  },
-  timerBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#FDF3F2',
-    color: '#C97872',
-    padding: '4px 8px',
-    borderRadius: '4px',
-    fontSize: '0.8rem',
-    fontWeight: '600',
-  },
-  helper: {
-    fontSize: '0.85rem',
-    color: '#697776',
-  },
-  detailsBox: {
-    backgroundColor: '#F7F8F5',
-    padding: '16px',
-    borderRadius: '8px',
+    padding: '12px 6px',
+    borderRadius: '12px',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    border: 'none',
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
-    fontSize: '0.9rem',
+    alignItems: 'center',
+    gap: '2px',
+    transition: 'all 0.18s',
+    fontFamily: "'Inter', sans-serif",
   },
-  btn: {
+  slotAvailable: {
+    background: 'rgba(30,138,132,0.07)',
+    border: '1.5px solid rgba(30,138,132,0.2)',
+    color: '#0a4f4b',
+  },
+  slotUnavailable: {
+    background: '#f3f4f6',
+    border: '1.5px solid #e5e7eb',
+    color: '#d1d5db',
+    cursor: 'not-allowed',
+  },
+  slotTime: { fontSize: '0.9rem', fontWeight: 800 },
+  slotEnd: { fontSize: '0.72rem', opacity: 0.7 },
+  slotTaken: { fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.04em', color: '#9ca3af', textTransform: 'uppercase', marginTop: '2px' },
+
+  unavailBox: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '12px',
+    textAlign: 'center',
+    background: '#fef3c7',
+    borderRadius: '16px',
+    padding: '28px 24px',
+    border: '1px solid rgba(245,158,11,0.2)',
+  },
+  unavailIcon: { fontSize: '2.5rem' },
+  unavailTitle: { fontFamily: "'Outfit', sans-serif", fontSize: '1.1rem', fontWeight: 800, color: '#92400e' },
+  unavailDesc: { fontSize: '0.87rem', color: '#b45309', lineHeight: 1.6, maxWidth: '320px' },
+
+  textareaWrap: { position: 'relative' },
+  textareaIcon: { position: 'absolute', top: '12px', left: '14px', fontSize: '1rem', pointerEvents: 'none' },
+  textarea: {
     width: '100%',
-  },
-  error: {
-    color: '#C97872',
-    fontSize: '0.9rem',
-    marginBottom: '12px',
-  },
-  successBadge: {
-    alignSelf: 'center',
-    backgroundColor: '#EAF2F0',
-    color: '#6FA889',
-    fontWeight: 'bold',
-    padding: '6px 12px',
+    padding: '12px 16px 12px 40px',
     borderRadius: '12px',
-    fontSize: '0.8rem',
+    border: '1.5px solid #e5e7eb',
+    fontSize: '0.9rem',
+    color: '#111827',
+    resize: 'vertical',
+    minHeight: '96px',
+    fontFamily: "'Inter', sans-serif",
+    outline: 'none',
+    background: '#f9fafb',
+    lineHeight: 1.6,
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+  },
+
+  reviewCard: {
+    background: '#f9fafb',
+    borderRadius: '14px',
+    border: '1px solid #e5e7eb',
+    overflow: 'hidden',
+  },
+  reviewRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '14px 18px',
+    gap: '12px',
+  },
+  reviewLabel: { fontSize: '0.82rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  reviewVal: { fontSize: '0.92rem', fontWeight: 700, color: '#111827' },
+  reviewDivider: { height: 1, background: '#e5e7eb', margin: '0' },
+
+  calendarNote: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    background: 'rgba(30,138,132,0.05)',
+    border: '1px solid rgba(30,138,132,0.12)',
+    borderRadius: '10px',
+    padding: '12px 14px',
+    fontSize: '0.82rem',
+    color: '#166f6a',
+    fontWeight: 600,
+  },
+
+  primaryBtn: {
+    width: '100%',
+    padding: '14px',
+    background: 'linear-gradient(135deg, #166f6a 0%, #0a4f4b 100%)',
+    color: '#fff',
+    borderRadius: '12px',
+    fontSize: '0.95rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    border: 'none',
+    boxShadow: '0 6px 20px rgba(22,111,106,0.25)',
+    fontFamily: "'Inter', sans-serif",
+    transition: 'all 0.2s',
+    letterSpacing: '-0.01em',
+  },
+  confirmBtn: {
+    width: '100%',
+    padding: '15px',
+    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+    color: '#fff',
+    borderRadius: '12px',
+    fontSize: '1rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    border: 'none',
+    boxShadow: '0 6px 20px rgba(5,150,105,0.3)',
+    fontFamily: "'Inter', sans-serif",
+    transition: 'all 0.2s',
+    letterSpacing: '-0.01em',
+  },
+  secondaryBtn: {
+    width: '100%',
+    padding: '11px',
+    background: 'transparent',
+    color: '#6b7280',
+    borderRadius: '10px',
+    fontSize: '0.88rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    border: '1.5px solid #e5e7eb',
+    fontFamily: "'Inter', sans-serif",
+    transition: 'all 0.2s',
+  },
+
+  /* Success */
+  successCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #10b981, #059669)',
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '2rem',
+    fontWeight: 800,
+    boxShadow: '0 12px 32px rgba(5,150,105,0.35)',
+    marginBottom: '8px',
+  },
+  successMeta: { display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' },
+  successMetaItem: {
+    background: '#f0fdf4',
+    border: '1px solid rgba(16,185,129,0.15)',
+    borderRadius: '10px',
+    padding: '10px 16px',
+    fontSize: '0.87rem',
+    fontWeight: 600,
+    color: '#065f46',
+    textAlign: 'center',
   },
 };
 
