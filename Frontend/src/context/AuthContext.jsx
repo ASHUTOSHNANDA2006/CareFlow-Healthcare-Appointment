@@ -27,6 +27,9 @@ export const AuthProvider = ({ children }) => {
   const loginUser = async (email, password) => {
     const data = await authService.login(email, password);
     if (data.success) {
+      if (data.data.token) {
+        localStorage.setItem('cf_token', data.data.token);
+      }
       setUser(data.data.user);
     }
     return data;
@@ -35,13 +38,19 @@ export const AuthProvider = ({ children }) => {
   const registerUser = async (name, email, password, role) => {
     const data = await authService.register(name, email, password, role);
     if (data.success) {
+      if (data.data.token) {
+        localStorage.setItem('cf_token', data.data.token);
+      }
       setUser(data.data.user);
     }
     return data;
   };
 
   const logoutUser = async () => {
-    await authService.logout();
+    try {
+      await authService.logout();
+    } catch { /* silent */ }
+    localStorage.removeItem('cf_token');
     setUser(null);
   };
 
