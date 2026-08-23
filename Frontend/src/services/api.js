@@ -35,15 +35,12 @@ api.interceptors.request.use((reqConfig) => {
   return reqConfig;
 });
 
-// Redirect to /auth on 401 (session expired/invalid)
+// Handle 401 (session expired/invalid) by clearing stored token
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Only redirect if not already on auth page
-      if (window.location.pathname !== '/auth') {
-        window.location.href = '/auth';
-      }
+      localStorage.removeItem('cf_token');
     }
     return Promise.reject(error);
   }

@@ -8,12 +8,22 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchSession = async () => {
+    const token = localStorage.getItem('cf_token');
+    if (!token) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
     try {
       const data = await authService.me();
       if (data.success) {
         setUser(data.data.user);
+      } else {
+        localStorage.removeItem('cf_token');
+        setUser(null);
       }
     } catch (err) {
+      localStorage.removeItem('cf_token');
       setUser(null);
     } finally {
       setLoading(false);
